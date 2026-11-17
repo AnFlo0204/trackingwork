@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import { recordAuditLog } from '@/lib/audit';
 import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { getCurrentWeeklyPeriodKey, getVnDateParts } from '@/lib/time';
@@ -77,6 +78,7 @@ export async function POST(req: Request) {
       await supabase.from('fund_transactions').insert({
         profile_id: data.id,
         tx_type: 'weekly_reset',
+        category: 'weekly_reset',
         amount: weeklyAllowance,
         balance_after: weeklyAllowance,
         cycle_key: periodKey,
@@ -84,6 +86,13 @@ export async function POST(req: Request) {
         created_by: me.id,
       });
     }
+
+    await recordAuditLog({
+      actorName: me.display_name,
+      actionType: 'CHANGE_ROLE',
+      targetSummary: `Tạo thành viên "${data.display_name}" (@${data.username}, Quyền giao việc: ${canAssignTasks ? 'Có' : 'Không'}, Quỹ tuần: ${weeklyAllowance.toLocaleString('vi-VN')}đ)`,
+      refId: data.id,
+    });
 
     await bumpSyncSignal('all');
     return NextResponse.json({ member: data });
@@ -109,7 +118,7 @@ export async function PATCH(req: Request) {
     const supabase = getSupabaseAdmin();
     const { data: target } = await supabase
       .from('profiles')
-      .select('id, role, username, current_balance, weekly_allowance')
+      .select('id, role, username, display_name, is_active, can_assign_tasks, current_balance, weekly_allowance')
       .eq('id', id)
       .maybeSingle();
 
@@ -118,16 +127,20 @@ export async function PATCH(req: Request) {
     }
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const changeNotes: string[] = [];
 
     if (typeof body.weekly_allowance !== 'undefined') {
       const nextAllowance = Math.max(0, Math.floor(Number(body.weekly_allowance)));
       updates.weekly_allowance = nextAllowance;
-      // If member had 0 allowance/balance previously and Admin sets initial allowance, credit it now
+      changeNotes.push(
+        `Quỹ tuần ${Number(target.weekly_allowance || 0).toLocaleString('vi-VN')}đ -> ${nextAllowance.toLocaleString('vi-VN')}đ`,
+      );
       if (Number(target.weekly_allowance || 0) === 0 && Number(target.current_balance || 0) === 0 && nextAllowance > 0) {
         updates.current_balance = nextAllowance;
         await supabase.from('fund_transactions').insert({
           profile_id: id,
           tx_type: 'adjustment',
+          category: 'adjustment',
           amount: nextAllowance,
           balance_after: nextAllowance,
           description: 'Cấp quỹ tuần khởi tạo bởi Admin',
@@ -142,9 +155,15 @@ export async function PATCH(req: Request) {
       }
       if (typeof body.is_active === 'boolean') {
         updates.is_active = body.is_active;
+        updates.failed_attempts = 0;
+        updates.locked_until = null;
+        changeNotes.push(body.is_active ? 'Mở khóa tài khoản' : 'Khóa tài khoản');
       }
       if (typeof body.can_assign_tasks === 'boolean') {
         updates.can_assign_tasks = body.can_assign_tasks;
+        changeNotes.push(
+          `Quyền giao việc: ${target.can_assign_tasks ? 'Bật' : 'Tắt'} -> ${body.can_assign_tasks ? 'Bật' : 'Tắt'}`,
+        );
       }
       if (typeof body.pin === 'string' && body.pin.trim() !== '') {
         const pin = body.pin.trim();
@@ -152,7 +171,19 @@ export async function PATCH(req: Request) {
           return NextResponse.json({ error: 'Mã PIN mới phải gồm đúng 6 chữ số.' }, { status: 400 });
         }
         updates.password_hash = bcrypt.hashSync(pin, 10);
+        updates.failed_attempts = 0;
+        updates.locked_until = null;
+        changeNotes.push('Đặt lại mã PIN 6 số');
       }
+    }
+
+    if (changeNotes.length > 0) {
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'CHANGE_ROLE',
+        targetSummary: `Cập nhật "${target.display_name}": ${changeNotes.join(', ')}`,
+        refId: id,
+      });
     }
 
     const { error } = await supabase.from('profiles').update(updates).eq('id', id);
@@ -182,13 +213,29 @@ export async function DELETE(req: Request) {
     }
 
     const supabase = getSupabaseAdmin();
-    const { data: target } = await supabase.from('profiles').select('id, role').eq('id', id).maybeSingle();
+    const { data: target } = await supabase
+      .from('profiles')
+      .select('id, role, display_name, username')
+      .eq('id', id)
+      .maybeSingle();
     if (!target || target.role === 'admin') {
       return NextResponse.json({ error: 'Không thể xóa tài khoản Admin.' }, { status: 400 });
     }
 
-    const { data: logs } = await supabase.from('chore_logs').select('storage_path').eq('profile_id', id);
-    const paths = (logs || []).map((l) => l.storage_path).filter(Boolean);
+    await recordAuditLog({
+      actorName: me.display_name,
+      actionType: 'CHANGE_ROLE',
+      targetSummary: `Xóa thành viên "${target.display_name}" (@${target.username})`,
+      refId: id,
+    });
+
+    const { data: logs } = await supabase
+      .from('chore_logs')
+      .select('storage_path, before_storage_path, thumb_storage_path')
+      .eq('profile_id', id);
+    const paths = (logs || [])
+      .flatMap((l) => [l.storage_path, l.before_storage_path, l.thumb_storage_path])
+      .filter(Boolean) as string[];
     if (paths.length > 0) {
       await supabase.storage.from('chore-proofs').remove(paths);
     }

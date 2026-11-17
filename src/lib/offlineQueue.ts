@@ -4,13 +4,14 @@ export function haptic(ms = 15): void {
       navigator.vibrate(ms);
     }
   } catch {
-    // Ignore on unsupported browsers (e.g. iOS Safari)
+    // Ignore on unsupported browsers
   }
 }
 
 export interface QueuedProofItem {
   id: string;
   endpoint: '/api/chores/start' | '/api/chores/complete';
+  phase: 'before' | 'after' | 'single';
   choreId: string;
   choreTitle: string;
   assignedChoreId: string | null;
@@ -18,6 +19,7 @@ export interface QueuedProofItem {
   sessionId: string | null;
   mimeType: string;
   photoBlob: Blob;
+  thumbBlob?: Blob | null;
   queuedAtIso: string;
 }
 
@@ -95,22 +97,33 @@ export async function flushOfflineProofQueue(): Promise<{ synced: number; remain
 
   for (const item of items) {
     try {
+      // Request a fresh single-use 2-minute upload token before flushing
+      const tokRes = await fetch('/api/upload-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ choreId: item.choreId, phase: item.phase || 'single' }),
+      });
+      if (!tokRes.ok) break;
+      const tokData = await tokRes.json();
+
       const ext = item.mimeType === 'image/jpeg' ? 'jpg' : 'webp';
       const fd = new FormData();
       fd.append('choreId', item.choreId);
+      fd.append('uploadToken', tokData.token);
       if (item.assignedChoreId) fd.append('assignedChoreId', item.assignedChoreId);
       if (item.cycleKey) fd.append('cycleKey', item.cycleKey);
       if (item.sessionId) fd.append('sessionId', item.sessionId);
       fd.append('photo', item.photoBlob, `proof.${ext}`);
+      if (item.thumbBlob) {
+        fd.append('thumb', item.thumbBlob, `thumb.${ext}`);
+      }
 
       const res = await fetch(item.endpoint, { method: 'POST', body: fd });
       if (res.ok || (res.status >= 400 && res.status < 500)) {
-        // Remove on success or permanent validation rejection (e.g., duplicate/already settled)
         await removeOfflineProof(item.id);
         if (res.ok) synced += 1;
       }
     } catch {
-      // Still offline; stop flushing further items
       break;
     }
   }

@@ -4,6 +4,9 @@ import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchAuthoritativeServerTime, getVnDateParts } from '@/lib/time';
 
+const MAX_UPLOAD_BYTES = 300 * 1024;
+const ALLOWED_MIMES = new Set(['image/webp', 'image/jpeg']);
+
 export async function POST(req: Request) {
   const me = await getAuthenticatedProfile();
   if (!me) {
@@ -13,39 +16,75 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const choreId = String(formData.get('choreId') || '').trim();
+    const uploadToken = String(formData.get('uploadToken') || '').trim();
     const assignedChoreId = String(formData.get('assignedChoreId') || '').trim() || null;
     const requestedCycleKey = String(formData.get('cycleKey') || '').trim() || null;
     const photo = formData.get('photo');
 
-    if (!choreId || !(photo instanceof Blob)) {
-      return NextResponse.json({ error: 'Thiếu thông tin hoặc ảnh Trước khi làm.' }, { status: 400 });
-    }
-    if (photo.size === 0 || photo.size > 300 * 1024) {
-      return NextResponse.json({ error: 'Dung lượng ảnh không hợp lệ (<= 180KB).' }, { status: 400 });
+    if (!choreId || !(photo instanceof Blob) || !uploadToken) {
+      return NextResponse.json(
+        { error: 'Thiếu token xác thực hoặc ảnh Trước khi làm.' },
+        { status: 400 },
+      );
     }
 
-    const mimeType = ['image/webp', 'image/jpeg', 'image/png'].includes(photo.type)
-      ? photo.type
-      : 'image/webp';
-    const ext = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/png' ? 'png' : 'webp';
+    if (photo.size === 0 || photo.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json({ error: 'Dung lượng ảnh vượt quá 300KB.' }, { status: 400 });
+    }
+    if (!ALLOWED_MIMES.has(photo.type)) {
+      return NextResponse.json(
+        { error: 'Chỉ chấp nhận định dạng ảnh WebP hoặc JPEG.' },
+        { status: 400 },
+      );
+    }
+
+    const mimeType = photo.type;
+    const ext = mimeType === 'image/jpeg' ? 'jpg' : 'webp';
 
     const supabase = getSupabaseAdmin();
-    const [serverTime, choreRes] = await Promise.all([
+    const [serverTime, choreRes, tokenRes] = await Promise.all([
       fetchAuthoritativeServerTime(),
       supabase.from('chores').select('*').eq('id', choreId).eq('is_active', true).maybeSingle(),
+      supabase.from('upload_tokens').select('*').eq('id', uploadToken).maybeSingle(),
     ]);
+
+    const tok = tokenRes.data;
+    const serverNowMs = Date.parse(serverTime.isoUtc);
+
+    if (
+      !tok ||
+      tok.profile_id !== me.id ||
+      tok.chore_id !== choreId ||
+      tok.used_at !== null ||
+      Date.parse(tok.expires_at) < serverNowMs
+    ) {
+      return NextResponse.json(
+        { error: 'Phiên tải ảnh đã hết hạn (2 phút) hoặc đã được sử dụng. Vui lòng chụp lại.' },
+        { status: 403 },
+      );
+    }
+
+    const { data: consumedTok } = await supabase
+      .from('upload_tokens')
+      .update({ used_at: serverTime.isoUtc })
+      .eq('id', tok.id)
+      .is('used_at', null)
+      .select('id')
+      .maybeSingle();
+
+    if (!consumedTok) {
+      return NextResponse.json({ error: 'Phiên tải ảnh không hợp lệ.' }, { status: 409 });
+    }
 
     const chore = choreRes.data;
     if (!chore) {
       return NextResponse.json({ error: 'Công việc không tồn tại.' }, { status: 404 });
     }
 
-    const serverNowMs = Date.parse(serverTime.isoUtc);
     const minDurationMs = Math.max(0, Number(chore.min_duration_minutes || 0)) * 60_000;
     const unlockIso = new Date(serverNowMs + minDurationMs).toISOString();
     const cycleKey = assignedChoreId ? requestedCycleKey || getVnDateParts(serverNowMs).dateStr : null;
 
-    // Cancel any older in_progress session for same user & chore
     await supabase
       .from('chore_sessions')
       .update({ status: 'cancelled' })

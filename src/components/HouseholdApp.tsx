@@ -1,12 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type TouchEvent } from 'react';
+import useSWR from 'swr';
 import {
   BarChart3,
   Bell,
   CheckSquare,
   ClipboardList,
   History,
+  Lock,
   LogOut,
   Moon,
   RefreshCw,
@@ -37,13 +39,24 @@ import { ShiftSwapSheet } from './ShiftSwapSheet';
 
 type TabKey = 'chores' | 'history' | 'stats' | 'assign' | 'admin';
 
+async function bootstrapFetcher(url: string): Promise<BootstrapPayload | null> {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (res.status === 401) {
+    const err = new Error('UNAUTHORIZED') as Error & { status?: number };
+    err.status = 401;
+    throw err;
+  }
+  if (!res.ok) {
+    throw new Error('Không thể tải dữ liệu');
+  }
+  return (await res.json()) as BootstrapPayload;
+}
+
 export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   const [darkMode, setDarkMode] = useState(false);
   const [authed, setAuthed] = useState(initialAuthed);
-  const [data, setData] = useState<BootstrapPayload | null>(null);
-  const [loading, setLoading] = useState(initialAuthed);
-  const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<TabKey>('chores');
+  const [historySubView, setHistorySubView] = useState<'feed' | 'audit'>('feed');
 
   const [captureTarget, setCaptureTarget] = useState<CaptureTarget | null>(null);
   const [inspectingLog, setInspectingLog] = useState<ChoreLogItem | null>(null);
@@ -57,6 +70,22 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   const [pullDist, setPullDist] = useState(0);
   const touchStartY = useRef<number | null>(null);
   const sentLocalPushKeys = useRef<Set<string>>(new Set());
+
+  const { data, isLoading, isValidating, mutate } = useSWR<BootstrapPayload | null>(
+    authed ? '/api/bootstrap' : null,
+    bootstrapFetcher,
+    {
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      keepPreviousData: true,
+      dedupingInterval: 2000,
+      onError: (err) => {
+        if ((err as { status?: number })?.status === 401) {
+          setAuthed(false);
+        }
+      },
+    },
+  );
 
   useEffect(() => {
     const saved = localStorage.getItem('hct_dark');
@@ -77,27 +106,9 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     localStorage.setItem('hct_dark', darkMode ? '1' : '0');
   }, [darkMode]);
 
-  const loadBootstrap = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    else setRefreshing(true);
-
-    try {
-      const res = await fetch('/api/bootstrap', { cache: 'no-store' });
-      if (res.status === 401) {
-        setAuthed(false);
-        setData(null);
-        return;
-      }
-      if (res.ok) {
-        const json = (await res.json()) as BootstrapPayload;
-        setData(json);
-        setAuthed(true);
-      }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const refreshData = useCallback(async () => {
+    await mutate();
+  }, [mutate]);
 
   const syncOfflineQueue = useCallback(async () => {
     const queued = await listOfflineProofs();
@@ -108,17 +119,16 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
       if (res.synced > 0) {
         setOfflineNotice(`Đã tự động đồng bộ ${res.synced} ảnh từ hàng đợi ngoại tuyến.`);
         setTimeout(() => setOfflineNotice(null), 4000);
-        await loadBootstrap(true);
+        await mutate();
       }
     }
-  }, [loadBootstrap]);
+  }, [mutate]);
 
   useEffect(() => {
     if (authed) {
-      void loadBootstrap(false);
       void syncOfflineQueue();
     }
-  }, [authed, loadBootstrap, syncOfflineQueue]);
+  }, [authed, syncOfflineQueue]);
 
   useEffect(() => {
     if (!authed) return;
@@ -129,14 +139,14 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'sync_signals' },
         () => {
-          void loadBootstrap(true);
+          void mutate();
         },
       )
       .subscribe();
 
     function handleVisible() {
       if (document.visibilityState === 'visible') {
-        void loadBootstrap(true);
+        void mutate();
         void syncOfflineQueue();
       }
     }
@@ -156,7 +166,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
       window.removeEventListener('focus', handleVisible);
       window.removeEventListener('online', handleOnline);
     };
-  }, [authed, loadBootstrap, syncOfflineQueue]);
+  }, [authed, mutate, syncOfflineQueue]);
 
   // Smart 30-min & 5-min deadline push reminders via Service Worker Notification API
   useEffect(() => {
@@ -220,18 +230,28 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   }
 
   async function handleMarkAllRead() {
+    // Optimistic UI update
+    if (data) {
+      await mutate(
+        {
+          ...data,
+          notifications: data.notifications.map((n) => ({ ...n, is_read: true })),
+        },
+        false,
+      );
+    }
     await fetch('/api/notifications', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
-    await loadBootstrap(true);
+    await mutate();
   }
 
   async function handleLoginSuccess(_user: ProfilePublic) {
     setAuthed(true);
     setTab('chores');
-    await loadBootstrap(false);
+    await mutate();
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       Notification.requestPermission().then(setNotifPermission).catch(() => undefined);
     }
@@ -240,7 +260,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     setAuthed(false);
-    setData(null);
+    await mutate(null, false);
   }
 
   async function handleModerateLog(
@@ -253,22 +273,42 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
       body: JSON.stringify({ logId: log.id, action }),
     });
     if (res.ok) {
-      await loadBootstrap(true);
+      await mutate();
     }
   }
 
   async function handleReactLog(log: ChoreLogItem, reaction: 'ok' | 'sloppy') {
+    // Optimistic UI update for instant reaction feedback
+    if (data) {
+      const updatedLogs = data.logs.map((l) => {
+        if (l.id !== log.id) return l;
+        const prev = l.my_reaction;
+        let ok = l.ok_count;
+        let sloppy = l.sloppy_count;
+        if (prev === 'ok') ok = Math.max(0, ok - 1);
+        if (prev === 'sloppy') sloppy = Math.max(0, sloppy - 1);
+        if (reaction === 'ok') ok += 1;
+        if (reaction === 'sloppy') sloppy += 1;
+        return {
+          ...l,
+          my_reaction: reaction,
+          ok_count: ok,
+          sloppy_count: sloppy,
+          quality_status: sloppy > 0 ? ('flagged' as const) : ok > 0 ? ('ok' as const) : l.quality_status,
+        };
+      });
+      await mutate({ ...data, logs: updatedLogs }, false);
+    }
     const res = await fetch('/api/logs/react', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ logId: log.id, reaction }),
     });
     if (res.ok) {
-      await loadBootstrap(true);
+      await mutate();
     }
   }
 
-  // Pull-to-refresh handlers
   function onTouchStart(e: TouchEvent<HTMLDivElement>) {
     if (window.scrollY <= 2 && e.touches.length === 1) {
       touchStartY.current = e.touches[0].clientY;
@@ -288,7 +328,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   function onTouchEnd() {
     if (pullDist >= 56) {
       haptic(15);
-      void loadBootstrap(true);
+      void mutate();
       void syncOfflineQueue();
     }
     setPullDist(0);
@@ -328,7 +368,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               onToggleDark={() => setDarkMode((d) => !d)}
             />
           </>
-        ) : loading && !data ? (
+        ) : isLoading && !data ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-3">
             <div className="w-8 h-8 border-2 border-[#059669] border-t-transparent rounded-full animate-spin" />
             <p className="text-sm text-[#6B7280] dark:text-[#94A3B8]">Đang tải dữ liệu việc nhà...</p>
@@ -342,7 +382,9 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   {tab === 'chores'
                     ? 'Bảng việc nhà'
                     : tab === 'history'
-                      ? 'Nhật ký hoạt động'
+                      ? historySubView === 'audit'
+                        ? 'Nhật ký Minh bạch'
+                        : 'Nhật ký hoạt động'
                       : tab === 'stats'
                         ? 'Thống kê & Xếp hạng'
                         : tab === 'assign'
@@ -364,6 +406,24 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   type="button"
                   onClick={() => {
                     haptic(10);
+                    setTab('history');
+                    setHistorySubView('audit');
+                  }}
+                  aria-label="Mở nhật ký Minh bạch"
+                  title="Minh bạch (Audit Log)"
+                  className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+                    tab === 'history' && historySubView === 'audit'
+                      ? 'border-[#059669] bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669]'
+                      : 'border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-[#6B7280] dark:text-[#CBD5E1]'
+                  }`}
+                >
+                  <Lock className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic(10);
                     setNotifOpen(true);
                   }}
                   aria-label="Thông báo"
@@ -380,13 +440,13 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   type="button"
                   onClick={() => {
                     haptic(10);
-                    void loadBootstrap(true);
+                    void mutate();
                     void syncOfflineQueue();
                   }}
                   aria-label="Làm mới"
                   className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
                 >
-                  <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-[#059669]' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 ${isValidating ? 'animate-spin text-[#059669]' : ''}`} />
                 </button>
                 <button
                   type="button"
@@ -407,7 +467,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               </div>
             </header>
 
-            {/* Pull-to-refresh indicator */}
             {pullDist > 12 && (
               <div
                 style={{ height: `${pullDist}px` }}
@@ -417,10 +476,8 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               </div>
             )}
 
-            {/* PWA Install Prompt Banner */}
             <InstallBanner />
 
-            {/* Offline Sync Queue Banner */}
             {(offlineCount > 0 || offlineNotice) && (
               <div className="mx-4 mt-3 rounded-2xl bg-[#FFFBEB] dark:bg-[#451A03] border border-[#FDE68A] dark:border-[#92400E] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
                 <div className="flex items-center gap-2 text-[#B45309] dark:text-[#FCD34D] font-medium">
@@ -441,7 +498,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               </div>
             )}
 
-            {/* Main Scroll Content */}
             <main className="flex-1 px-4 py-4 pb-24">
               {tab === 'chores' && (
                 <ChoreBoard
@@ -460,13 +516,18 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   onInspectPhoto={(log) => setInspectingLog(log)}
                   onOpenWallet={() => setWalletOpen(true)}
                   onOpenSwapSheet={(a) => setSwapAssignment(a)}
-                  onRefresh={() => loadBootstrap(true)}
+                  onRefresh={refreshData}
                 />
               )}
 
               {tab === 'history' && (
                 <ActivityHistory
                   logs={data.logs}
+                  logsNextCursor={data.logsNextCursor}
+                  auditLogs={data.auditLogs}
+                  auditNextCursor={data.auditNextCursor}
+                  subView={historySubView}
+                  onChangeSubView={setHistorySubView}
                   featureFlags={data.featureFlags}
                   isAdmin={isAdmin}
                   onInspectPhoto={(log) => setInspectingLog(log)}
@@ -488,7 +549,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   serverNowIso={data.serverNowIso}
                   isAdmin={isAdmin}
                   meId={data.me.id}
-                  onRefresh={() => loadBootstrap(true)}
+                  onRefresh={refreshData}
                 />
               )}
 
@@ -498,7 +559,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   members={data.members}
                   assignedChores={data.assignedChores}
                   currentVnDate={data.currentVnDate}
-                  onRefresh={() => loadBootstrap(true)}
+                  onRefresh={refreshData}
                 />
               )}
 
@@ -516,14 +577,13 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   retentionDays={data.retentionDays}
                   lastCleanupAt={data.lastCleanupAt}
                   currentVnDate={data.currentVnDate}
-                  onRefresh={() => loadBootstrap(true)}
+                  onRefresh={refreshData}
                   onModerate={handleModerateLog}
                   onInspectPhoto={(log) => setInspectingLog(log)}
                 />
               )}
             </main>
 
-            {/* Fixed Bottom Tab Navigation (max 4 icons) */}
             <nav
               aria-label="Điều hướng chính"
               className="fixed bottom-0 w-full max-w-[430px] z-30 bg-white/95 dark:bg-[#1E293B]/95 backdrop-blur-sm border-t border-[#E5E7EB] dark:border-[#334155] px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
@@ -602,7 +662,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               </div>
             </nav>
 
-            {/* Camera Verification Bottom Sheet */}
             <CameraCaptureSheet
               target={captureTarget}
               memberName={data.me.display_name}
@@ -614,12 +673,11 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   setOfflineNotice('Mất mạng — Ảnh đã lưu tạm và sẽ tự động tải lên khi có kết nối!');
                   setTimeout(() => setOfflineNotice(null), 5000);
                 } else {
-                  await loadBootstrap(true);
+                  await mutate();
                 }
               }}
             />
 
-            {/* Weekly Wallet Transaction History Drawer */}
             <WeeklyWalletDrawer
               open={walletOpen}
               me={data.me}
@@ -627,7 +685,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               onClose={() => setWalletOpen(false)}
             />
 
-            {/* Notification Center Drawer */}
             <NotificationDrawer
               open={notifOpen}
               notifications={data.notifications}
@@ -637,16 +694,14 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               onClose={() => setNotifOpen(false)}
             />
 
-            {/* Shift Swap & Bounty Sheet */}
             <ShiftSwapSheet
               assignment={swapAssignment}
               members={data.members}
               me={data.me}
               onClose={() => setSwapAssignment(null)}
-              onCreated={() => loadBootstrap(true)}
+              onCreated={refreshData}
             />
 
-            {/* Full-screen Pinch-to-Zoom Proof Viewer */}
             <PhotoViewerModal
               log={inspectingLog}
               isAdmin={isAdmin}

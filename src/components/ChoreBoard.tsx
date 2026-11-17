@@ -724,8 +724,10 @@ export function ChoreBoard({
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={latest.proof_url}
+                          src={latest.thumb_url || latest.proof_url}
                           alt="Ảnh xác thực"
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover"
                         />
                         {latest.before_proof_url && (

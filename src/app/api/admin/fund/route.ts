@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { runWeeklySettlementAndDeductions } from '@/lib/allowanceEngine';
+import { recordAuditLog } from '@/lib/audit';
 import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchAuthoritativeServerTime } from '@/lib/time';
@@ -14,7 +15,6 @@ export async function POST(req: Request) {
     const body = await req.json();
     const supabase = getSupabaseAdmin();
 
-    // 1. Update weekly_fund_config globally
     if (body?.action === 'config') {
       const cfg = body.config || {};
       const sanitized = {
@@ -22,6 +22,11 @@ export async function POST(req: Request) {
         reset_day: Math.max(0, Math.min(6, Math.floor(Number(cfg.reset_day ?? 1)))),
         reset_hour: Math.max(0, Math.min(23, Math.floor(Number(cfg.reset_hour ?? 0)))),
       };
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'CHANGE_SETTINGS',
+        targetSummary: `Cập nhật Ví quỹ tuần (${sanitized.enabled ? 'Bật' : 'Tắt'}, reset thứ ${sanitized.reset_day} lúc ${sanitized.reset_hour}:00)`,
+      });
       const { error } = await supabase
         .from('app_settings')
         .upsert({ key: 'weekly_fund_config', value: sanitized }, { onConflict: 'key' });
@@ -32,7 +37,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // 2. Toggle or reset Shared Party Fund ("Quỹ Liên Hoan Chung")
     if (body?.action === 'party_fund_config') {
       const { data: curRow } = await supabase
         .from('app_settings')
@@ -47,6 +51,14 @@ export async function POST(req: Request) {
       const nextShow =
         typeof body.show_banner === 'boolean' ? body.show_banner : currentShow;
 
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: body.reset_balance ? 'RESET_PARTY_FUND' : 'CHANGE_SETTINGS',
+        targetSummary: body.reset_balance
+          ? `Quyết toán / Chi Quỹ Liên Hoan Chung (${currentBalance.toLocaleString('vi-VN')}đ -> 0đ)`
+          : `${nextShow ? 'Hiện' : 'Ẩn'} banner Quỹ Liên Hoan Chung`,
+      });
+
       await supabase.from('app_settings').upsert(
         {
           key: 'shared_party_fund',
@@ -58,7 +70,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // 3. Close weekly settlement & start fresh week ("Chốt sổ tuần mới")
     if (body?.action === 'close_week_settlement') {
       const serverTime = await fetchAuthoritativeServerTime();
       const serverNowMs = Date.parse(serverTime.isoUtc) || Date.now();
@@ -75,12 +86,17 @@ export async function POST(req: Request) {
         .from('app_settings')
         .upsert({ key: 'settlement_epoch', value: { nonce: nextNonce } }, { onConflict: 'key' });
 
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'CLOSE_WEEK',
+        targetSummary: `Chốt sổ quyết toán & cấp quỹ tuần mới (Đợt #${nextNonce})`,
+      });
+
       await runWeeklySettlementAndDeductions(serverNowMs);
       await bumpSyncSignal('all');
       return NextResponse.json({ ok: true, nonce: nextNonce });
     }
 
-    // 4. Manual balance adjustment / refund (positive or negative)
     if (body?.action === 'adjust') {
       const profileId = String(body.profile_id || '').trim();
       const amount = Math.round(Number(body.amount || 0));
@@ -95,7 +111,11 @@ export async function POST(req: Request) {
       }
 
       const [{ data: target }, serverTime] = await Promise.all([
-        supabase.from('profiles').select('id, current_balance').eq('id', profileId).maybeSingle(),
+        supabase
+          .from('profiles')
+          .select('id, display_name, current_balance')
+          .eq('id', profileId)
+          .maybeSingle(),
         fetchAuthoritativeServerTime(),
       ]);
 
@@ -103,21 +123,33 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Không tìm thấy thành viên.' }, { status: 404 });
       }
 
-      const nextBal = Number(target.current_balance || 0) + amount;
+      const prevBal = Number(target.current_balance || 0);
+      const nextBal = prevBal + amount;
       await supabase
         .from('profiles')
         .update({ current_balance: nextBal, updated_at: serverTime.isoUtc })
         .eq('id', profileId);
 
-      await supabase.from('fund_transactions').insert({
-        profile_id: profileId,
-        tx_type: txType,
-        category: txType,
-        amount,
-        balance_after: nextBal,
-        description,
-        created_by: me.id,
-        server_timestamp: serverTime.isoUtc,
+      const { data: insertedTx } = await supabase
+        .from('fund_transactions')
+        .insert({
+          profile_id: profileId,
+          tx_type: txType,
+          category: txType,
+          amount,
+          balance_after: nextBal,
+          description,
+          created_by: me.id,
+          server_timestamp: serverTime.isoUtc,
+        })
+        .select('id')
+        .single();
+
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'ADJUST_FUND',
+        targetSummary: `Điều chỉnh ví ${target.display_name}: ${prevBal.toLocaleString('vi-VN')}đ -> ${nextBal.toLocaleString('vi-VN')}đ (${amount >= 0 ? '+' : ''}${amount.toLocaleString('vi-VN')}đ, lý do: ${description})`,
+        refId: insertedTx?.id ?? null,
       });
 
       await supabase.from('notifications').insert({
@@ -131,11 +163,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, balance: nextBal });
     }
 
-    // 5. Manual reset balance of a member back to their weekly_allowance
     if (body?.action === 'reset_member') {
       const profileId = String(body.profile_id || '').trim();
       const [{ data: target }, serverTime] = await Promise.all([
-        supabase.from('profiles').select('id, weekly_allowance').eq('id', profileId).maybeSingle(),
+        supabase
+          .from('profiles')
+          .select('id, display_name, current_balance, weekly_allowance')
+          .eq('id', profileId)
+          .maybeSingle(),
         fetchAuthoritativeServerTime(),
       ]);
       if (!target) {
@@ -147,15 +182,26 @@ export async function POST(req: Request) {
         .update({ current_balance: allowance, updated_at: serverTime.isoUtc })
         .eq('id', profileId);
 
-      await supabase.from('fund_transactions').insert({
-        profile_id: profileId,
-        tx_type: 'adjustment',
-        category: 'adjustment',
-        amount: allowance,
-        balance_after: allowance,
-        description: 'Admin cấp lại định mức quỹ tuần',
-        created_by: me.id,
-        server_timestamp: serverTime.isoUtc,
+      const { data: insertedTx } = await supabase
+        .from('fund_transactions')
+        .insert({
+          profile_id: profileId,
+          tx_type: 'adjustment',
+          category: 'adjustment',
+          amount: allowance,
+          balance_after: allowance,
+          description: 'Admin cấp lại định mức quỹ tuần',
+          created_by: me.id,
+          server_timestamp: serverTime.isoUtc,
+        })
+        .select('id')
+        .single();
+
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'ADJUST_FUND',
+        targetSummary: `Cấp lại quỹ tuần cho ${target.display_name}: ${Number(target.current_balance || 0).toLocaleString('vi-VN')}đ -> ${allowance.toLocaleString('vi-VN')}đ`,
+        refId: insertedTx?.id ?? null,
       });
 
       await bumpSyncSignal('all');

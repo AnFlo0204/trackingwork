@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { recordAuditLog } from '@/lib/audit';
 import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -20,6 +21,11 @@ export async function POST(req: Request) {
         analytics: Boolean(ff.analytics),
         penalty_fund: Boolean(ff.penalty_fund),
       };
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'CHANGE_SETTINGS',
+        targetSummary: `Cập nhật công tắc tính năng (Định kỳ: ${sanitized.recurring_tasks ? 'Bật' : 'Tắt'}, Điểm: ${sanitized.gamification ? 'Bật' : 'Tắt'}, Thống kê: ${sanitized.analytics ? 'Bật' : 'Tắt'}, Quỹ phạt: ${sanitized.penalty_fund ? 'Bật' : 'Tắt'})`,
+      });
       const { error } = await supabase
         .from('app_settings')
         .upsert({ key: 'feature_flags', value: sanitized }, { onConflict: 'key' });
@@ -33,6 +39,11 @@ export async function POST(req: Request) {
       if (!Number.isFinite(days) || days < 1 || days > 3650) {
         return NextResponse.json({ error: 'Chu kỳ lưu trữ phải từ 1 đến 3650 ngày.' }, { status: 400 });
       }
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'CHANGE_SETTINGS',
+        targetSummary: `Thay đổi chu kỳ lưu trữ dữ liệu thành ${days} ngày`,
+      });
       const { error } = await supabase
         .from('app_settings')
         .upsert({ key: 'retention_days', value: { days } }, { onConflict: 'key' });

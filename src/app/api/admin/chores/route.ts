@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { recordAuditLog } from '@/lib/audit';
 import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
@@ -50,6 +51,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Không thể thêm công việc mới.' }, { status: 500 });
     }
 
+    await recordAuditLog({
+      actorName: me.display_name,
+      actionType: 'EDIT_CHORE',
+      targetSummary: `Thêm đầu việc mới "${title}" (Phạt ${Number(data.penalty_amount).toLocaleString('vi-VN')}đ)`,
+      refId: data.id,
+    });
+
     await bumpSyncSignal('all');
     return NextResponse.json({ chore: data });
   } catch (err) {
@@ -98,6 +106,8 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    const { data: prevChore } = await supabase.from('chores').select('*').eq('id', id).maybeSingle();
+
     const updates: Record<string, unknown> = {};
     if (typeof body.title === 'string' && body.title.trim()) updates.title = body.title.trim();
     if (typeof body.icon === 'string') updates.icon = body.icon;
@@ -121,6 +131,15 @@ export async function PATCH(req: Request) {
       );
     }
     if (typeof body.is_active === 'boolean') updates.is_active = body.is_active;
+
+    if (prevChore) {
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'EDIT_CHORE',
+        targetSummary: `Sửa đầu việc "${prevChore.title}" -> "${updates.title || prevChore.title}" (Điểm ${prevChore.points}->${updates.points ?? prevChore.points}, Phạt ${Number(prevChore.penalty_amount).toLocaleString('vi-VN')}đ->${Number(updates.penalty_amount ?? prevChore.penalty_amount).toLocaleString('vi-VN')}đ)`,
+        refId: id,
+      });
+    }
 
     const { error } = await supabase.from('chores').update(updates).eq('id', id);
     if (error) {
@@ -149,13 +168,21 @@ export async function DELETE(req: Request) {
     }
 
     const supabase = getSupabaseAdmin();
+    const { data: targetChore } = await supabase.from('chores').select('title').eq('id', id).maybeSingle();
+
+    await recordAuditLog({
+      actorName: me.display_name,
+      actionType: 'DELETE_CHORE',
+      targetSummary: `Xóa danh mục công việc "${targetChore?.title || id}"`,
+      refId: id,
+    });
 
     const { data: logs } = await supabase
       .from('chore_logs')
-      .select('storage_path, before_storage_path')
+      .select('storage_path, before_storage_path, thumb_storage_path')
       .eq('chore_id', id);
     const paths = (logs || [])
-      .flatMap((l) => [l.storage_path, l.before_storage_path])
+      .flatMap((l) => [l.storage_path, l.before_storage_path, l.thumb_storage_path])
       .filter(Boolean) as string[];
     if (paths.length > 0) {
       await supabase.storage.from('chore-proofs').remove(paths);

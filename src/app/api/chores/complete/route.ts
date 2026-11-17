@@ -4,6 +4,9 @@ import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchAuthoritativeServerTime, getVnDateParts } from '@/lib/time';
 
+const MAX_UPLOAD_BYTES = 300 * 1024;
+const ALLOWED_MIMES = new Set(['image/webp', 'image/jpeg']);
+
 export async function POST(req: Request) {
   const me = await getAuthenticatedProfile();
   if (!me) {
@@ -13,28 +16,39 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const choreId = String(formData.get('choreId') || '').trim();
+    const uploadToken = String(formData.get('uploadToken') || '').trim();
     const assignedChoreId = String(formData.get('assignedChoreId') || '').trim() || null;
     const requestedCycleKey = String(formData.get('cycleKey') || '').trim() || null;
     const sessionId = String(formData.get('sessionId') || '').trim() || null;
     const photo = formData.get('photo');
+    const thumb = formData.get('thumb');
 
-    if (!choreId || !(photo instanceof Blob)) {
-      return NextResponse.json({ error: 'Thiếu thông tin công việc hoặc ảnh xác thực.' }, { status: 400 });
-    }
-
-    if (photo.size === 0 || photo.size > 300 * 1024) {
+    if (!choreId || !(photo instanceof Blob) || !uploadToken) {
       return NextResponse.json(
-        { error: 'Dung lượng ảnh không hợp lệ (tối đa ~180KB sau khi nén).' },
+        { error: 'Thiếu token xác thực tải ảnh hoặc dữ liệu ảnh.' },
         { status: 400 },
       );
     }
 
-    const allowedTypes = ['image/webp', 'image/jpeg', 'image/png'];
-    const mimeType = allowedTypes.includes(photo.type) ? photo.type : 'image/webp';
-    const ext = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'image/png' ? 'png' : 'webp';
+    if (photo.size === 0 || photo.size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { error: 'Dung lượng ảnh không hợp lệ (tối đa 300KB).' },
+        { status: 400 },
+      );
+    }
+
+    if (!ALLOWED_MIMES.has(photo.type)) {
+      return NextResponse.json(
+        { error: 'Chỉ chấp nhận ảnh định dạng WebP hoặc JPEG.' },
+        { status: 400 },
+      );
+    }
+
+    const mimeType = photo.type;
+    const ext = mimeType === 'image/jpeg' ? 'jpg' : 'webp';
 
     const supabase = getSupabaseAdmin();
-    const [serverTime, choreRes, settingsRes, latestLogRes] = await Promise.all([
+    const [serverTime, choreRes, settingsRes, latestLogRes, tokenRes] = await Promise.all([
       fetchAuthoritativeServerTime(),
       supabase.from('chores').select('*').eq('id', choreId).eq('is_active', true).maybeSingle(),
       supabase.from('app_settings').select('value').eq('key', 'feature_flags').maybeSingle(),
@@ -45,33 +59,51 @@ export async function POST(req: Request) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase.from('upload_tokens').select('*').eq('id', uploadToken).maybeSingle(),
     ]);
+
+    const tok = tokenRes.data;
+    const serverNowMs = Date.parse(serverTime.isoUtc);
+
+    if (
+      !tok ||
+      tok.profile_id !== me.id ||
+      tok.chore_id !== choreId ||
+      tok.used_at !== null ||
+      Date.parse(tok.expires_at) < serverNowMs
+    ) {
+      return NextResponse.json(
+        { error: 'Phiên tải ảnh đã hết hạn (2 phút) hoặc đã được sử dụng. Vui lòng chụp lại.' },
+        { status: 403 },
+      );
+    }
+
+    const { data: consumedTok } = await supabase
+      .from('upload_tokens')
+      .update({ used_at: serverTime.isoUtc })
+      .eq('id', tok.id)
+      .is('used_at', null)
+      .select('id')
+      .maybeSingle();
+
+    if (!consumedTok) {
+      return NextResponse.json({ error: 'Token tải ảnh đã được sử dụng.' }, { status: 409 });
+    }
 
     const chore = choreRes.data;
     if (!chore) {
       return NextResponse.json({ error: 'Công việc không tồn tại hoặc đã bị ẩn.' }, { status: 404 });
     }
 
-    const serverNowMs = Date.parse(serverTime.isoUtc);
     const todayCycleKey = getVnDateParts(serverNowMs).dateStr;
     let resolvedCycleKey: string | null = requestedCycleKey || todayCycleKey;
 
-    // 1. Validate Before/After session if chore requires it
     let beforeProofUrl: string | null = null;
     let beforeStoragePath: string | null = null;
     let startedAt: string | null = null;
     let activeSessionId: string | null = null;
 
     if (chore.require_before_after) {
-      const sessionQuery = supabase
-        .from('chore_sessions')
-        .select('*')
-        .eq('profile_id', me.id)
-        .eq('chore_id', chore.id)
-        .eq('status', 'in_progress')
-        .order('created_at', { ascending: false })
-        .limit(1);
-
       const { data: sessionRow } = sessionId
         ? await supabase
             .from('chore_sessions')
@@ -80,7 +112,15 @@ export async function POST(req: Request) {
             .eq('profile_id', me.id)
             .eq('status', 'in_progress')
             .maybeSingle()
-        : await sessionQuery.maybeSingle();
+        : await supabase
+            .from('chore_sessions')
+            .select('*')
+            .eq('profile_id', me.id)
+            .eq('chore_id', chore.id)
+            .eq('status', 'in_progress')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
       if (!sessionRow) {
         return NextResponse.json(
@@ -108,7 +148,6 @@ export async function POST(req: Request) {
       activeSessionId = sessionRow.id;
     }
 
-    // 2. Validate Assignment & Accepted Shift Swaps
     let acceptedSwap: {
       id: string;
       requester_id: string;
@@ -191,6 +230,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Không thể tải ảnh lên máy chủ.' }, { status: 500 });
     }
 
+    // Optional low-res thumbnail upload for ultra-low feed egress
+    let thumbUrl: string | null = null;
+    let thumbStoragePath: string | null = null;
+    if (thumb instanceof Blob && thumb.size > 0 && thumb.size <= 50 * 1024 && ALLOWED_MIMES.has(thumb.type)) {
+      const tExt = thumb.type === 'image/jpeg' ? 'jpg' : 'webp';
+      const tPath = `thumbs/${chore.id}/${Date.now()}-${crypto.randomUUID()}.${tExt}`;
+      const tBuf = Buffer.from(await thumb.arrayBuffer());
+      const { error: tErr } = await supabase.storage
+        .from('chore-proofs')
+        .upload(tPath, tBuf, { contentType: thumb.type, cacheControl: '31536000', upsert: false });
+      if (!tErr) {
+        thumbStoragePath = tPath;
+        thumbUrl = supabase.storage.from('chore-proofs').getPublicUrl(tPath).data.publicUrl;
+      }
+    }
+
     const { data: publicUrlData } = supabase.storage.from('chore-proofs').getPublicUrl(storagePath);
     const gamificationOn = Boolean(settingsRes.data?.value?.gamification ?? true);
     const pointsAwarded = gamificationOn ? Number(chore.points || 0) : 0;
@@ -203,6 +258,8 @@ export async function POST(req: Request) {
         assigned_chore_id: assignedChoreId,
         cycle_key: resolvedCycleKey,
         proof_url: publicUrlData.publicUrl,
+        thumb_url: thumbUrl,
+        thumb_storage_path: thumbStoragePath,
         storage_path: storagePath,
         before_proof_url: beforeProofUrl,
         before_storage_path: beforeStoragePath,
@@ -215,7 +272,9 @@ export async function POST(req: Request) {
       .single();
 
     if (insertErr) {
-      await supabase.storage.from('chore-proofs').remove([storagePath]);
+      await supabase.storage
+        .from('chore-proofs')
+        .remove([storagePath, ...(thumbStoragePath ? [thumbStoragePath] : [])]);
       console.error('Insert log error:', insertErr);
       return NextResponse.json({ error: 'Không thể lưu lịch sử hoàn thành.' }, { status: 500 });
     }
@@ -227,7 +286,6 @@ export async function POST(req: Request) {
         .eq('id', activeSessionId);
     }
 
-    // 3. Settle Shift Swap Bounty Transfer upon verified completion
     if (acceptedSwap && acceptedSwap.accepted_by === me.id) {
       await supabase
         .from('shift_swaps')

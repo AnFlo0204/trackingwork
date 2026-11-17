@@ -23,6 +23,8 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+const PAGE_SIZE = 20;
+
 export async function GET() {
   const me = await getAuthenticatedProfile();
   if (!me) {
@@ -39,11 +41,14 @@ export async function GET() {
     ]);
 
     const supabase = getSupabaseAdmin();
+    const sevenDaysAgoIso = new Date(serverNowMs - 8 * 86_400_000).toISOString();
+
     const [
       choresRes,
       sessionsRes,
-      logsRes,
-      reactionsRes,
+      logsPageRes,
+      recentLogsRes,
+      auditPageRes,
       profilesRes,
       settingsRes,
       penaltiesRes,
@@ -63,8 +68,25 @@ export async function GET() {
         .eq('profile_id', me.id)
         .eq('status', 'in_progress')
         .order('created_at', { ascending: false }),
-      supabase.from('chore_logs').select('*').order('created_at', { ascending: false }).limit(300),
-      supabase.from('chore_log_reactions').select('*').limit(1000),
+      // Paginated 20 most recent logs for initial feed
+      supabase
+        .from('chore_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE + 1),
+      // Lightweight recent logs (last 8 days) for ChoreBoard "Last Completed By" & Analytics
+      supabase
+        .from('chore_logs')
+        .select('id, chore_id, profile_id, assigned_chore_id, cycle_key, proof_url, thumb_url, before_proof_url, points_awarded, chore_title_snapshot, quality_status, server_timestamp, created_at')
+        .gte('created_at', sevenDaysAgoIso)
+        .order('created_at', { ascending: false })
+        .limit(100),
+      // Paginated 20 most recent immutable audit logs
+      supabase
+        .from('audit_logs')
+        .select('id, actor_name, action_type, target_summary, created_at')
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE + 1),
       supabase
         .from('profiles')
         .select(
@@ -72,21 +94,21 @@ export async function GET() {
         )
         .order('created_at', { ascending: true }),
       supabase.from('app_settings').select('key, value'),
-      supabase.from('penalties').select('*').order('created_at', { ascending: false }).limit(100),
+      supabase.from('penalties').select('*').order('created_at', { ascending: false }).limit(50),
       supabase.from('assigned_chores').select('*').order('created_at', { ascending: false }),
       supabase
         .from('shift_swaps')
         .select('*')
         .in('status', ['open', 'accepted'])
         .order('created_at', { ascending: false })
-        .limit(100),
+        .limit(50),
       supabase
         .from('notifications')
         .select('*')
         .eq('profile_id', me.id)
         .order('created_at', { ascending: false })
-        .limit(40),
-      supabase.from('fund_transactions').select('*').order('created_at', { ascending: false }).limit(300),
+        .limit(30),
+      supabase.from('fund_transactions').select('*').order('created_at', { ascending: false }).limit(150),
     ]);
 
     let featureFlags: FeatureFlags = { ...DEFAULT_FEATURE_FLAGS };
@@ -152,12 +174,23 @@ export async function GET() {
       });
     }
 
-    // Aggregate quality reactions per log
+    // Merge paged logs (20 items) and recent logs cleanly
+    const rawPagedLogs = logsPageRes.data || [];
+    const logsHasMore = rawPagedLogs.length > PAGE_SIZE;
+    const pagedLogs = logsHasMore ? rawPagedLogs.slice(0, PAGE_SIZE) : rawPagedLogs;
+    const logsNextCursor = logsHasMore ? pagedLogs[pagedLogs.length - 1]?.created_at ?? null : null;
+
+    const pagedLogIds = pagedLogs.map((l) => l.id);
+    const { data: reactionsData } =
+      pagedLogIds.length > 0
+        ? await supabase.from('chore_log_reactions').select('*').in('log_id', pagedLogIds)
+        : { data: [] };
+
     const reactionStats = new Map<
       string,
       { ok: number; sloppy: number; mine: 'ok' | 'sloppy' | null }
     >();
-    for (const r of reactionsRes.data || []) {
+    for (const r of reactionsData || []) {
       const prev = reactionStats.get(r.log_id) || { ok: 0, sloppy: 0, mine: null };
       if (r.reaction === 'ok') prev.ok += 1;
       if (r.reaction === 'sloppy') prev.sloppy += 1;
@@ -165,35 +198,47 @@ export async function GET() {
       reactionStats.set(r.log_id, prev);
     }
 
-    const logs: ChoreLogItem[] = (logsRes.data || []).map((l) => {
-      const member = profileMap.get(l.profile_id);
-      const chore = choreMap.get(l.chore_id);
-      const rStats = reactionStats.get(l.id) || { ok: 0, sloppy: 0, mine: null };
+    const mapLog = (l: Record<string, unknown>): ChoreLogItem => {
+      const id = String(l.id);
+      const choreId = String(l.chore_id);
+      const profileId = String(l.profile_id);
+      const member = profileMap.get(profileId);
+      const chore = choreMap.get(choreId);
+      const rStats = reactionStats.get(id) || { ok: 0, sloppy: 0, mine: null };
       return {
-        id: l.id,
-        chore_id: l.chore_id,
-        profile_id: l.profile_id,
-        assigned_chore_id: l.assigned_chore_id || null,
-        cycle_key: l.cycle_key || null,
-        proof_url: l.proof_url,
-        storage_path: l.storage_path || '',
-        before_proof_url: l.before_proof_url || null,
-        before_storage_path: l.before_storage_path || null,
-        started_at: l.started_at || null,
+        id,
+        chore_id: choreId,
+        profile_id: profileId,
+        assigned_chore_id: (l.assigned_chore_id as string) || null,
+        cycle_key: (l.cycle_key as string) || null,
+        proof_url: String(l.proof_url),
+        thumb_url: (l.thumb_url as string) || null,
+        storage_path: String(l.storage_path || ''),
+        before_proof_url: (l.before_proof_url as string) || null,
+        before_storage_path: (l.before_storage_path as string) || null,
+        started_at: (l.started_at as string) || null,
         points_awarded: Number(l.points_awarded || 0),
-        chore_title_snapshot: l.chore_title_snapshot || chore?.title || 'Việc nhà',
-        quality_status: l.quality_status || 'none',
+        chore_title_snapshot: String(l.chore_title_snapshot || chore?.title || 'Việc nhà'),
+        quality_status: (l.quality_status as ChoreLogItem['quality_status']) || 'none',
         ok_count: rStats.ok,
         sloppy_count: rStats.sloppy,
         my_reaction: rStats.mine,
-        server_timestamp: l.server_timestamp,
-        created_at: l.created_at,
+        server_timestamp: String(l.server_timestamp),
+        created_at: String(l.created_at),
         member_name: member?.display_name || member?.username || 'Thành viên',
         member_username: member?.username || '',
-        chore_title: chore?.title || l.chore_title_snapshot || 'Việc nhà',
+        chore_title: chore?.title || String(l.chore_title_snapshot || 'Việc nhà'),
         chore_icon: chore?.icon || 'sparkles',
       };
-    });
+    };
+
+    const logs = pagedLogs.map(mapLog);
+    const recentLogs = (recentLogsRes.data || []).map(mapLog);
+
+    const rawAudit = auditPageRes.data || [];
+    const auditHasMore = rawAudit.length > PAGE_SIZE;
+    const auditLogs = auditHasMore ? rawAudit.slice(0, PAGE_SIZE) : rawAudit;
+    const auditNextCursor = auditHasMore ? auditLogs[auditLogs.length - 1]?.created_at ?? null : null;
 
     const rawAssignments = assignmentsRes.data || [];
     const assignById = new Map(rawAssignments.map((a) => [a.id, a]));
@@ -225,7 +270,7 @@ export async function GET() {
 
     const assignedChores = buildAssignedChoreItems({
       assignments: rawAssignments,
-      logs,
+      logs: recentLogs.length > 0 ? recentLogs : logs,
       swaps: shiftSwaps,
       choreMap,
       profileNameMap,
@@ -276,6 +321,9 @@ export async function GET() {
       chores: choresRes.data || [],
       activeSessions: sessionsRes.data || [],
       logs,
+      logsNextCursor,
+      auditLogs,
+      auditNextCursor,
       members,
       assignedChores,
       shiftSwaps,

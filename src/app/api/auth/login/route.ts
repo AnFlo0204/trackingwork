@@ -3,6 +3,9 @@ import bcrypt from 'bcryptjs';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { createSessionToken, getSessionCookieOptions, SESSION_COOKIE_NAME } from '@/lib/auth';
 
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCK_DURATION_MS = 15 * 60 * 1000;
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -20,7 +23,7 @@ export async function POST(req: Request) {
     const { data: profiles, error } = await supabase
       .from('profiles')
       .select(
-        'id, username, display_name, role, password_hash, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
+        'id, username, display_name, role, pin, password_hash, is_active, can_assign_tasks, weekly_allowance, current_balance, failed_attempts, locked_until, created_at',
       );
 
     if (error || !profiles) {
@@ -31,17 +34,68 @@ export async function POST(req: Request) {
       (p) => p.username.toLowerCase() === username.toLowerCase(),
     );
 
-    if (!matched || !matched.password_hash) {
+    if (!matched) {
       return NextResponse.json(
         { error: 'Tên đăng nhập hoặc mật khẩu / mã PIN không đúng.' },
         { status: 401 },
       );
     }
 
-    const valid = bcrypt.compareSync(secret, matched.password_hash);
+    // Check brute-force lockout
+    const nowMs = Date.now();
+    if (matched.locked_until) {
+      const lockUntilMs = Date.parse(matched.locked_until);
+      if (!Number.isNaN(lockUntilMs) && lockUntilMs > nowMs) {
+        const remainMin = Math.ceil((lockUntilMs - nowMs) / 60_000);
+        return NextResponse.json(
+          {
+            error: `Tài khoản tạm khóa do nhập sai quá 5 lần. Vui lòng thử lại sau ${remainMin} phút.`,
+          },
+          { status: 429 },
+        );
+      }
+    }
+
+    // Safe one-time migration if a legacy row still has plaintext `pin` and no `password_hash`
+    let passwordHash = matched.password_hash || '';
+    if (!passwordHash && matched.pin) {
+      passwordHash = bcrypt.hashSync(String(matched.pin).trim(), 10);
+      await supabase
+        .from('profiles')
+        .update({ password_hash: passwordHash, pin: null })
+        .eq('id', matched.id);
+    }
+
+    const valid = Boolean(passwordHash) && bcrypt.compareSync(secret, passwordHash);
     if (!valid) {
+      const prevFails =
+        matched.locked_until && Date.parse(matched.locked_until) <= nowMs
+          ? 0
+          : Number(matched.failed_attempts || 0);
+      const nextFails = prevFails + 1;
+      const shouldLock = nextFails >= MAX_FAILED_ATTEMPTS;
+
+      await supabase
+        .from('profiles')
+        .update({
+          failed_attempts: nextFails,
+          locked_until: shouldLock ? new Date(nowMs + LOCK_DURATION_MS).toISOString() : null,
+        })
+        .eq('id', matched.id);
+
+      if (shouldLock) {
+        return NextResponse.json(
+          {
+            error: 'Bạn đã nhập sai 5 lần liên tiếp. Tài khoản bị khóa trong 15 phút.',
+          },
+          { status: 429 },
+        );
+      }
+
       return NextResponse.json(
-        { error: 'Tên đăng nhập hoặc mật khẩu / mã PIN không đúng.' },
+        {
+          error: `Sai mật khẩu / mã PIN (Còn ${MAX_FAILED_ATTEMPTS - nextFails} lần thử).`,
+        },
         { status: 401 },
       );
     }
@@ -51,6 +105,14 @@ export async function POST(req: Request) {
         { error: 'Tài khoản này đang bị tạm khóa. Liên hệ Admin để mở lại.' },
         { status: 403 },
       );
+    }
+
+    // Reset failed attempts on successful login
+    if (Number(matched.failed_attempts || 0) > 0 || matched.locked_until) {
+      await supabase
+        .from('profiles')
+        .update({ failed_attempts: 0, locked_until: null })
+        .eq('id', matched.id);
     }
 
     const role = matched.role === 'admin' ? 'admin' : 'member';

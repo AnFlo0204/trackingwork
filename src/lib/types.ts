@@ -53,6 +53,7 @@ export interface ChoreLogItem {
   assigned_chore_id: string | null;
   cycle_key: string | null;
   proof_url: string;
+  thumb_url: string | null;
   storage_path: string;
   before_proof_url: string | null;
   before_storage_path: string | null;
@@ -69,6 +70,14 @@ export interface ChoreLogItem {
   member_username: string;
   chore_title: string;
   chore_icon: string;
+}
+
+export interface AuditLogItem {
+  id: string;
+  actor_name: string;
+  action_type: string;
+  target_summary: string;
+  created_at: string;
 }
 
 export interface AssignedChoreItem {
@@ -192,6 +201,9 @@ export interface BootstrapPayload {
   chores: Chore[];
   activeSessions: ChoreSessionItem[];
   logs: ChoreLogItem[];
+  logsNextCursor: string | null;
+  auditLogs: AuditLogItem[];
+  auditNextCursor: string | null;
   members: ProfilePublic[];
   assignedChores: AssignedChoreItem[];
   shiftSwaps: ShiftSwapItem[];

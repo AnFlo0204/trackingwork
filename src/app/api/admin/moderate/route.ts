@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { addToSharedPartyFund } from '@/lib/allowanceEngine';
+import { recordAuditLog } from '@/lib/audit';
 import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { fetchAuthoritativeServerTime } from '@/lib/time';
+import { fetchAuthoritativeServerTime, formatIsoToVn } from '@/lib/time';
 
 function extractPath(url: string | null | undefined): string {
   if (!url) return '';
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
     const { data: logRow, error: fetchErr } = await supabase
       .from('chore_logs')
       .select(
-        'id, chore_id, profile_id, assigned_chore_id, cycle_key, storage_path, proof_url, before_storage_path, before_proof_url, chore_title_snapshot',
+        'id, chore_id, profile_id, assigned_chore_id, cycle_key, storage_path, proof_url, before_storage_path, before_proof_url, thumb_storage_path, chore_title_snapshot, server_timestamp',
       )
       .eq('id', logId)
       .maybeSingle();
@@ -39,7 +40,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Không tìm thấy lượt hoàn thành.' }, { status: 404 });
     }
 
-    // If Admin requests rework + 50% penalty, deduct half penalty and pool into shared_party_fund
+    const { data: authorProfile } = await supabase
+      .from('profiles')
+      .select('display_name, username')
+      .eq('id', logRow.profile_id)
+      .maybeSingle();
+    const authorName = authorProfile?.display_name || authorProfile?.username || 'Thành viên';
+    const choreTitle = logRow.chore_title_snapshot || 'Việc nhà';
+
     if (action === 'rework_half_penalty') {
       const [choreRes, assignRes, profileRes, serverTime] = await Promise.all([
         supabase.from('chores').select('title, penalty_amount').eq('id', logRow.chore_id).maybeSingle(),
@@ -62,7 +70,6 @@ export async function POST(req: Request) {
         assignRes.data?.penalty_amount ?? choreRes.data?.penalty_amount ?? 20000,
       );
       const halfPenalty = Math.max(5000, Math.round(basePenalty / 2));
-      const choreTitle = choreRes.data?.title || logRow.chore_title_snapshot || 'Việc nhà';
 
       if (profileRes.data) {
         const nextBal = Number(profileRes.data.current_balance || 0) - halfPenalty;
@@ -93,6 +100,20 @@ export async function POST(req: Request) {
           addToSharedPartyFund(halfPenalty),
         ]);
       }
+
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'REWORK_HALF_PENALTY',
+        targetSummary: `Phạt 50% (-${halfPenalty.toLocaleString('vi-VN')}đ) & yêu cầu làm lại "${choreTitle}" của ${authorName}`,
+        refId: logRow.id,
+      });
+    } else {
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'REJECT_PROOF',
+        targetSummary: `Từ chối / Xóa ảnh "${choreTitle}" của ${authorName} (lúc ${formatIsoToVn(logRow.server_timestamp)})`,
+        refId: logRow.id,
+      });
     }
 
     const toRemove: string[] = [];
@@ -100,6 +121,7 @@ export async function POST(req: Request) {
     const beforePath = logRow.before_storage_path || extractPath(logRow.before_proof_url);
     if (afterPath) toRemove.push(afterPath);
     if (beforePath) toRemove.push(beforePath);
+    if (logRow.thumb_storage_path) toRemove.push(logRow.thumb_storage_path);
 
     if (toRemove.length > 0) {
       await supabase.storage.from('chore-proofs').remove(toRemove);

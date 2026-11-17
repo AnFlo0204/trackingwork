@@ -1,5 +1,6 @@
 export interface WatermarkedPhotoResult {
   blob: Blob;
+  thumbBlob: Blob | null;
   previewUrl: string;
   sizeBytes: number;
   mimeType: 'image/webp' | 'image/jpeg';
@@ -60,7 +61,6 @@ function drawTelemetryBar(
   ctx.fillStyle = 'rgba(17, 24, 39, 0.88)';
   ctx.fillRect(0, yStart, width, barHeight);
 
-  // Amber accent for BEFORE capture, Emerald accent for AFTER/single capture
   ctx.fillStyle = phase === 'before' ? '#D97706' : '#059669';
   ctx.fillRect(0, yStart, width, Math.max(3, Math.round(barHeight * 0.05)));
 
@@ -86,8 +86,31 @@ function drawTelemetryBar(
   ctx.fillText(line2, padX, yStart + barHeight * 0.72, width - padX * 2);
 }
 
+async function createLowResThumb(
+  source: CanvasImageSource,
+  origW: number,
+  origH: number,
+  preferredMime: 'image/webp' | 'image/jpeg',
+): Promise<Blob | null> {
+  const scale = Math.min(1, 200 / Math.max(origW, origH));
+  const w = Math.max(80, Math.round(origW * scale));
+  const h = Math.max(60, Math.round(origH * scale));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(source, 0, 0, w, h);
+  let thumb = await canvasToBlob(c, preferredMime, 0.6);
+  if (!thumb || (preferredMime === 'image/webp' && thumb.type !== 'image/webp')) {
+    thumb = await canvasToBlob(c, 'image/jpeg', 0.6);
+  }
+  return thumb;
+}
+
 /**
- * Burns the authoritative server watermark onto a live camera photo and compresses to WebP/JPEG <= 180KB.
+ * Burns the authoritative server watermark onto a live camera photo and compresses to WebP/JPEG <= 180KB,
+ * plus generates a tiny low-res thumbnail (~6-10KB) for bandwidth-saving feed rendering.
  */
 export async function createWatermarkedProof(
   fileOrBlob: Blob,
@@ -143,8 +166,10 @@ export async function createWatermarkedProof(
           bestBlob = blob;
           bestMime = mime;
           if (blob.size <= MAX_BYTES) {
+            const thumbBlob = await createLowResThumb(source, origW, origH, mime);
             return {
               blob,
+              thumbBlob,
               previewUrl: URL.createObjectURL(blob),
               sizeBytes: blob.size,
               mimeType: mime,
@@ -158,8 +183,10 @@ export async function createWatermarkedProof(
       throw new Error('Không thể nén ảnh xác thực');
     }
 
+    const thumbBlob = await createLowResThumb(source, origW, origH, bestMime);
     return {
       blob: bestBlob,
+      thumbBlob,
       previewUrl: URL.createObjectURL(bestBlob),
       sizeBytes: bestBlob.size,
       mimeType: bestMime,

@@ -32,6 +32,7 @@ export function CameraCaptureSheet({
 
   const [mode, setMode] = useState<'idle' | 'webrtc' | 'processing' | 'preview'>('idle');
   const [watermarked, setWatermarked] = useState<WatermarkedPhotoResult | null>(null);
+  const [uploadToken, setUploadToken] = useState<string | null>(null);
   const [serverStamp, setServerStamp] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +53,7 @@ export function CameraCaptureSheet({
     setMode('idle');
     setError(null);
     setSubmitting(false);
+    setUploadToken(null);
     if (watermarked?.previewUrl) {
       URL.revokeObjectURL(watermarked.previewUrl);
     }
@@ -92,15 +94,24 @@ export function CameraCaptureSheet({
 
     try {
       let vnFormatted = formatLocalFallbackVn();
+      let token: string | null = null;
+
       try {
-        const timeRes = await fetch('/api/server-time', { cache: 'no-store' });
-        if (timeRes.ok) {
-          const timeData = await timeRes.json();
-          if (timeData?.vnFormatted) vnFormatted = timeData.vnFormatted;
+        const tokRes = await fetch('/api/upload-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ choreId: chore.id, phase }),
+        });
+        if (tokRes.ok) {
+          const tokData = await tokRes.json();
+          if (tokData?.vnFormatted) vnFormatted = tokData.vnFormatted;
+          if (tokData?.token) token = tokData.token;
         }
       } catch {
         // Offline fallback uses device clock locally until queue syncs
       }
+
+      setUploadToken(token);
       setServerStamp(vnFormatted);
 
       const result = await createWatermarkedProof(blob, {
@@ -191,9 +202,27 @@ export function CameraCaptureSheet({
     const endpoint = phase === 'before' ? '/api/chores/start' : '/api/chores/complete';
 
     try {
+      let activeToken = uploadToken;
+      if (!activeToken) {
+        const tokRes = await fetch('/api/upload-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ choreId: chore.id, phase }),
+        });
+        if (tokRes.ok) {
+          const tokData = await tokRes.json();
+          activeToken = tokData.token;
+        }
+      }
+
+      if (!activeToken) {
+        throw new Error('Offline');
+      }
+
       const ext = watermarked.mimeType === 'image/jpeg' ? 'jpg' : 'webp';
       const formData = new FormData();
       formData.append('choreId', chore.id);
+      formData.append('uploadToken', activeToken);
       if (assigned) {
         formData.append('assignedChoreId', assigned.id);
         if (assigned.current_cycle_key) {
@@ -204,6 +233,9 @@ export function CameraCaptureSheet({
         formData.append('sessionId', sessionId);
       }
       formData.append('photo', watermarked.blob, `proof.${ext}`);
+      if (watermarked.thumbBlob) {
+        formData.append('thumb', watermarked.thumbBlob, `thumb.${ext}`);
+      }
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -221,11 +253,11 @@ export function CameraCaptureSheet({
       await onCompleted(false);
       onClose();
     } catch {
-      // Network drop / offline: cache into IndexedDB Offline Sync Queue!
       try {
         await enqueueOfflineProof({
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           endpoint,
+          phase,
           choreId: chore.id,
           choreTitle: chore.title,
           assignedChoreId: assigned?.id ?? null,
@@ -233,6 +265,7 @@ export function CameraCaptureSheet({
           sessionId: sessionId ?? null,
           mimeType: watermarked.mimeType,
           photoBlob: watermarked.blob,
+          thumbBlob: watermarked.thumbBlob,
           queuedAtIso: new Date().toISOString(),
         });
         if (watermarked.previewUrl) {
@@ -285,7 +318,7 @@ export function CameraCaptureSheet({
             <p className="text-xs text-[#6B7280] dark:text-[#94A3B8]">
               {phase === 'before'
                 ? 'Chụp hiện trạng ban đầu để mở đồng hồ đếm thời gian làm việc.'
-                : 'Ảnh được đóng dấu giờ máy chủ Việt Nam (UTC+7).'}
+                : 'Ảnh được đóng dấu giờ máy chủ Việt Nam (UTC+7) • Token bảo mật 2 phút.'}
             </p>
           </div>
           <button

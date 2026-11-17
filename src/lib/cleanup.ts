@@ -1,3 +1,4 @@
+import { recordAuditLog } from './audit';
 import { bumpSyncSignal, getSupabaseAdmin } from './supabaseAdmin';
 
 export interface CleanupResult {
@@ -14,10 +15,10 @@ function extractStoragePath(urlOrPath: string | null | undefined): string {
   return idx >= 0 ? urlOrPath.slice(idx + marker.length) : '';
 }
 
-/**
- * Purges chore_logs and Storage objects (both AFTER and BEFORE photos) older than `retentionDays`.
- */
-export async function runRetentionCleanup(force = false): Promise<CleanupResult | null> {
+export async function runRetentionCleanup(
+  force = false,
+  actorName?: string,
+): Promise<CleanupResult | null> {
   const supabase = getSupabaseAdmin();
 
   const { data: settingsRows } = await supabase
@@ -49,7 +50,7 @@ export async function runRetentionCleanup(force = false): Promise<CleanupResult 
 
   const { data: expiredLogs, error: fetchErr } = await supabase
     .from('chore_logs')
-    .select('id, storage_path, proof_url, before_storage_path, before_proof_url')
+    .select('id, storage_path, proof_url, before_storage_path, before_proof_url, thumb_storage_path')
     .lt('created_at', cutoffIso)
     .limit(500);
 
@@ -68,6 +69,7 @@ export async function runRetentionCleanup(force = false): Promise<CleanupResult 
       const pBefore = l.before_storage_path || extractStoragePath(l.before_proof_url);
       if (pAfter) storagePaths.push(pAfter);
       if (pBefore) storagePaths.push(pBefore);
+      if (l.thumb_storage_path) storagePaths.push(l.thumb_storage_path);
     }
 
     if (storagePaths.length > 0) {
@@ -80,12 +82,25 @@ export async function runRetentionCleanup(force = false): Promise<CleanupResult 
     }
 
     const expiredIds = expiredLogs.map((l) => l.id);
+    // Log summary before deleting so triggers don't spam per-row
+    await recordAuditLog({
+      actorName: actorName || 'Hệ thống tự động',
+      actionType: 'MANUAL_CLEANUP',
+      targetSummary: `Dọn dẹp ${expiredIds.length} lượt và ${deletedFiles} ảnh quá hạn (> ${retentionDays} ngày)`,
+    });
+
     const { error: delErr } = await supabase.from('chore_logs').delete().in('id', expiredIds);
     if (!delErr) {
       deletedLogs = expiredIds.length;
     } else {
       console.error('DB delete error during cleanup:', delErr);
     }
+  } else if (force && actorName) {
+    await recordAuditLog({
+      actorName,
+      actionType: 'MANUAL_CLEANUP',
+      targetSummary: `Kiểm tra dọn dẹp thủ công (> ${retentionDays} ngày): không có dữ liệu quá hạn`,
+    });
   }
 
   await supabase.from('app_settings').upsert(
