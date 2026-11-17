@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { runWeeklySettlementAndDeductions } from '@/lib/allowanceEngine';
 import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchAuthoritativeServerTime } from '@/lib/time';
@@ -31,7 +32,55 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // 2. Manual balance adjustment / refund (positive or negative)
+    // 2. Toggle or reset Shared Party Fund ("Quỹ Liên Hoan Chung")
+    if (body?.action === 'party_fund_config') {
+      const { data: curRow } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'shared_party_fund')
+        .maybeSingle();
+
+      const currentBalance = Number(curRow?.value?.balance ?? 0);
+      const currentShow = Boolean(curRow?.value?.show_banner ?? true);
+
+      const nextBalance = body.reset_balance ? 0 : currentBalance;
+      const nextShow =
+        typeof body.show_banner === 'boolean' ? body.show_banner : currentShow;
+
+      await supabase.from('app_settings').upsert(
+        {
+          key: 'shared_party_fund',
+          value: { balance: nextBalance, show_banner: nextShow },
+        },
+        { onConflict: 'key' },
+      );
+      await bumpSyncSignal('all');
+      return NextResponse.json({ ok: true });
+    }
+
+    // 3. Close weekly settlement & start fresh week ("Chốt sổ tuần mới")
+    if (body?.action === 'close_week_settlement') {
+      const serverTime = await fetchAuthoritativeServerTime();
+      const serverNowMs = Date.parse(serverTime.isoUtc) || Date.now();
+      await runWeeklySettlementAndDeductions(serverNowMs);
+
+      const { data: epochRow } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'settlement_epoch')
+        .maybeSingle();
+
+      const nextNonce = Number(epochRow?.value?.nonce ?? 0) + 1;
+      await supabase
+        .from('app_settings')
+        .upsert({ key: 'settlement_epoch', value: { nonce: nextNonce } }, { onConflict: 'key' });
+
+      await runWeeklySettlementAndDeductions(serverNowMs);
+      await bumpSyncSignal('all');
+      return NextResponse.json({ ok: true, nonce: nextNonce });
+    }
+
+    // 4. Manual balance adjustment / refund (positive or negative)
     if (body?.action === 'adjust') {
       const profileId = String(body.profile_id || '').trim();
       const amount = Math.round(Number(body.amount || 0));
@@ -63,6 +112,7 @@ export async function POST(req: Request) {
       await supabase.from('fund_transactions').insert({
         profile_id: profileId,
         tx_type: txType,
+        category: txType,
         amount,
         balance_after: nextBal,
         description,
@@ -70,11 +120,18 @@ export async function POST(req: Request) {
         server_timestamp: serverTime.isoUtc,
       });
 
+      await supabase.from('notifications').insert({
+        profile_id: profileId,
+        kind: 'balance_update',
+        title: `Admin điều chỉnh ví ${amount >= 0 ? '+' : ''}${amount.toLocaleString('vi-VN')}đ`,
+        body: `${description}. Số dư mới: ${nextBal.toLocaleString('vi-VN')}đ.`,
+      });
+
       await bumpSyncSignal('all');
       return NextResponse.json({ ok: true, balance: nextBal });
     }
 
-    // 3. Manual reset balance of a member back to their weekly_allowance
+    // 5. Manual reset balance of a member back to their weekly_allowance
     if (body?.action === 'reset_member') {
       const profileId = String(body.profile_id || '').trim();
       const [{ data: target }, serverTime] = await Promise.all([
@@ -93,6 +150,7 @@ export async function POST(req: Request) {
       await supabase.from('fund_transactions').insert({
         profile_id: profileId,
         tx_type: 'adjustment',
+        category: 'adjustment',
         amount: allowance,
         balance_after: allowance,
         description: 'Admin cấp lại định mức quỹ tuần',

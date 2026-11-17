@@ -7,7 +7,9 @@ export interface WatermarkedPhotoResult {
 
 const MAX_BYTES = 180 * 1024; // <= 180KB per spec
 
-async function loadImageSource(fileOrBlob: Blob): Promise<{ source: CanvasImageSource; width: number; height: number; cleanup: () => void }> {
+async function loadImageSource(
+  fileOrBlob: Blob,
+): Promise<{ source: CanvasImageSource; width: number; height: number; cleanup: () => void }> {
   if (typeof createImageBitmap === 'function') {
     try {
       const bmp = await createImageBitmap(fileOrBlob);
@@ -50,17 +52,17 @@ function drawTelemetryBar(
   memberName: string,
   choreTitle: string,
   serverTimeFormatted: string,
+  phase: 'before' | 'after' | 'single',
 ) {
   const barHeight = Math.max(66, Math.round(height * 0.12));
   const yStart = height - barHeight;
 
-  // High-contrast dark telemetry bar
   ctx.fillStyle = 'rgba(17, 24, 39, 0.88)';
   ctx.fillRect(0, yStart, width, barHeight);
 
-  // Crisp top accent hairline
-  ctx.fillStyle = '#059669';
-  ctx.fillRect(0, yStart, width, Math.max(2, Math.round(barHeight * 0.04)));
+  // Amber accent for BEFORE capture, Emerald accent for AFTER/single capture
+  ctx.fillStyle = phase === 'before' ? '#D97706' : '#059669';
+  ctx.fillRect(0, yStart, width, Math.max(3, Math.round(barHeight * 0.05)));
 
   const padX = Math.max(14, Math.round(width * 0.025));
   const fontPrimary = Math.max(12, Math.min(20, Math.round(barHeight * 0.25)));
@@ -72,9 +74,15 @@ function drawTelemetryBar(
   const line1 = `NGƯỜI LÀM: ${memberName} | VIỆC: ${choreTitle}`;
   ctx.fillText(line1, padX, yStart + barHeight * 0.34, width - padX * 2);
 
-  ctx.fillStyle = '#34D399';
+  ctx.fillStyle = phase === 'before' ? '#FBBF24' : '#34D399';
   ctx.font = `500 ${fontSecondary}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-  const line2 = `THỜI GIAN THỰC: ${serverTimeFormatted} (Verified)`;
+  const prefix =
+    phase === 'before'
+      ? 'TRƯỚC KHI LÀM'
+      : phase === 'after'
+        ? 'SAU KHI LÀM'
+        : 'THỜI GIAN THỰC';
+  const line2 = `${prefix}: ${serverTimeFormatted} (Verified)`;
   ctx.fillText(line2, padX, yStart + barHeight * 0.72, width - padX * 2);
 }
 
@@ -87,9 +95,11 @@ export async function createWatermarkedProof(
     memberName: string;
     choreTitle: string;
     serverTimeFormatted: string;
+    phase?: 'before' | 'after' | 'single';
   },
 ): Promise<WatermarkedPhotoResult> {
   const { source, width: origW, height: origH, cleanup } = await loadImageSource(fileOrBlob);
+  const phase = opts.phase ?? 'single';
 
   try {
     const dimensionCaps = [1280, 1024, 840, 680];
@@ -117,13 +127,13 @@ export async function createWatermarkedProof(
         opts.memberName,
         opts.choreTitle,
         opts.serverTimeFormatted,
+        phase,
       );
 
       for (const quality of qualitySteps) {
         let blob = await canvasToBlob(canvas, 'image/webp', quality);
         let mime: 'image/webp' | 'image/jpeg' = 'image/webp';
 
-        // Some mobile Safari builds fall back to image/png when webp is unsupported
         if (!blob || blob.type !== 'image/webp') {
           blob = await canvasToBlob(canvas, 'image/jpeg', quality);
           mime = 'image/jpeg';

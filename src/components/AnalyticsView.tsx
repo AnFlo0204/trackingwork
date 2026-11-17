@@ -1,8 +1,26 @@
 'use client';
 
 import { useMemo, useState, type FormEvent } from 'react';
-import { AlertTriangle, Award, BarChart3, CheckCircle2, Coins, Plus, Trash2 } from 'lucide-react';
-import type { Chore, ChoreLogItem, FeatureFlags, PenaltyItem, ProfilePublic } from '@/lib/types';
+import {
+  AlertTriangle,
+  Award,
+  BarChart3,
+  CheckCircle2,
+  Coins,
+  FileSpreadsheet,
+  Plus,
+  Trash2,
+} from 'lucide-react';
+import type {
+  Chore,
+  ChoreLogItem,
+  FeatureFlags,
+  PenaltyItem,
+  ProfilePublic,
+  SharedPartyFund,
+  WeeklyFundConfig,
+  WeeklySettlementRow,
+} from '@/lib/types';
 import { formatIsoToVn, getVnPeriodBounds } from '@/lib/time';
 import { getInitials } from './ChoreIcon';
 
@@ -11,6 +29,9 @@ interface AnalyticsViewProps {
   logs: ChoreLogItem[];
   members: ProfilePublic[];
   penalties: PenaltyItem[];
+  weeklySettlement: WeeklySettlementRow[];
+  sharedPartyFund: SharedPartyFund;
+  weeklyFundConfig: WeeklyFundConfig;
   featureFlags: FeatureFlags;
   serverNowIso: string;
   isAdmin: boolean;
@@ -36,6 +57,9 @@ export function AnalyticsView({
   logs,
   members,
   penalties,
+  weeklySettlement,
+  sharedPartyFund,
+  weeklyFundConfig,
   featureFlags,
   serverNowIso,
   isAdmin,
@@ -55,9 +79,10 @@ export function AnalyticsView({
     [serverNowMs],
   );
 
-  // Leaderboard & Member contribution
   const memberStats = useMemo(() => {
-    const activeProfiles = members.filter((m) => m.role === 'member' || logs.some((l) => l.profile_id === m.id));
+    const activeProfiles = members.filter(
+      (m) => m.role === 'member' || logs.some((l) => l.profile_id === m.id),
+    );
     const map = new Map<string, { profile: ProfilePublic; count: number; points: number }>();
 
     for (const p of activeProfiles) {
@@ -78,7 +103,6 @@ export function AnalyticsView({
     });
   }, [members, logs, featureFlags.gamification]);
 
-  // Chore type breakdown
   const choreStats = useMemo(() => {
     const map = new Map<string, { title: string; count: number }>();
     for (const log of logs) {
@@ -89,7 +113,6 @@ export function AnalyticsView({
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
   }, [logs]);
 
-  // Missed recurring duties in current period
   const missedDuties = useMemo(() => {
     if (!featureFlags.penalty_fund) return [];
     return chores
@@ -103,7 +126,6 @@ export function AnalyticsView({
   const totalLogs = logs.length;
   const maxChoreCount = Math.max(1, ...choreStats.map((c) => c.count));
 
-  // SVG Donut calculation
   const donutSegments = useMemo(() => {
     const contributors = memberStats.filter((m) => m.count > 0);
     if (contributors.length === 0) return [];
@@ -185,6 +207,53 @@ export function AnalyticsView({
 
   return (
     <div className="space-y-4">
+      {/* Weekly Settlement Report (Bảng quyết toán cuối tuần) */}
+      {weeklyFundConfig.enabled && (
+        <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-[#059669]" />
+              <h2 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
+                Bảng quyết toán quỹ tuần
+              </h2>
+            </div>
+            <span className="text-xs font-semibold text-[#D97706] tabular-nums">
+              Quỹ chung: {sharedPartyFund.balance.toLocaleString('vi-VN')}đ
+            </span>
+          </div>
+
+          {weeklySettlement.length === 0 ? (
+            <p className="text-xs text-[#6B7280] dark:text-[#94A3B8]">
+              Chưa có thành viên nào được thiết lập định mức quỹ tuần.
+            </p>
+          ) : (
+            <div className="divide-y divide-[#F3F4F6] dark:divide-[#334155]">
+              {weeklySettlement.map((row) => (
+                <div key={row.profile_id} className="py-2.5 space-y-1 tabular-nums">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
+                      {row.display_name}
+                    </span>
+                    <span className="text-sm font-bold text-[#059669] dark:text-[#34D399]">
+                      Nhận: {row.current_balance.toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-[#6B7280] dark:text-[#94A3B8]">
+                    <span>Cấp: {row.weekly_allowance.toLocaleString('vi-VN')}đ</span>
+                    <span className="text-[#DC2626]">
+                      Phạt/chi: -{(row.total_penalties + row.total_bounty_paid).toLocaleString('vi-VN')}đ
+                    </span>
+                    <span className="text-[#059669]">
+                      Làm hộ: +{row.total_bounty_earned.toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* 1. Leaderboard (Gamification) */}
       {featureFlags.gamification && (
         <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
@@ -234,7 +303,8 @@ export function AnalyticsView({
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate">
-                          {entry.profile.display_name} {isMe && <span className="text-xs text-[#059669]">(Bạn)</span>}
+                          {entry.profile.display_name}{' '}
+                          {isMe && <span className="text-xs text-[#059669]">(Bạn)</span>}
                         </p>
                         <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
                           {entry.count} lần hoàn thành
@@ -398,7 +468,9 @@ export function AnalyticsView({
                 Nhắc nhở việc định kỳ chưa hoàn thành
               </div>
               <p className="text-xs text-[#92400E] dark:text-[#FDE68A]">
-                {missedDuties.map((d) => `${d.title} (${d.frequency === 'daily' ? 'hôm nay' : 'tuần này'})`).join(', ')}
+                {missedDuties
+                  .map((d) => `${d.title} (${d.frequency === 'daily' ? 'hôm nay' : 'tuần này'})`)
+                  .join(', ')}
               </p>
             </div>
           )}

@@ -6,8 +6,16 @@ export interface CleanupResult {
   cutoffIso: string;
 }
 
+function extractStoragePath(urlOrPath: string | null | undefined): string {
+  if (!urlOrPath) return '';
+  if (!urlOrPath.startsWith('http')) return urlOrPath;
+  const marker = '/chore-proofs/';
+  const idx = urlOrPath.indexOf(marker);
+  return idx >= 0 ? urlOrPath.slice(idx + marker.length) : '';
+}
+
 /**
- * Purges chore_logs and Storage objects in `chore-proofs` older than `retentionDays`.
+ * Purges chore_logs and Storage objects (both AFTER and BEFORE photos) older than `retentionDays`.
  */
 export async function runRetentionCleanup(force = false): Promise<CleanupResult | null> {
   const supabase = getSupabaseAdmin();
@@ -29,7 +37,6 @@ export async function runRetentionCleanup(force = false): Promise<CleanupResult 
     }
   }
 
-  // Throttle automatic app-load cleanup to at most once every 6 hours unless manually forced
   if (!force && lastCleanupAt) {
     const lastMs = Date.parse(lastCleanupAt);
     if (!Number.isNaN(lastMs) && Date.now() - lastMs < 6 * 60 * 60 * 1000) {
@@ -42,7 +49,7 @@ export async function runRetentionCleanup(force = false): Promise<CleanupResult 
 
   const { data: expiredLogs, error: fetchErr } = await supabase
     .from('chore_logs')
-    .select('id, storage_path, proof_url')
+    .select('id, storage_path, proof_url, before_storage_path, before_proof_url')
     .lt('created_at', cutoffIso)
     .limit(500);
 
@@ -55,14 +62,13 @@ export async function runRetentionCleanup(force = false): Promise<CleanupResult 
   let deletedLogs = 0;
 
   if (expiredLogs && expiredLogs.length > 0) {
-    const storagePaths = expiredLogs
-      .map((l) => {
-        if (l.storage_path) return l.storage_path;
-        const marker = '/chore-proofs/';
-        const idx = l.proof_url?.indexOf(marker) ?? -1;
-        return idx >= 0 ? l.proof_url.slice(idx + marker.length) : '';
-      })
-      .filter(Boolean);
+    const storagePaths: string[] = [];
+    for (const l of expiredLogs) {
+      const pAfter = l.storage_path || extractStoragePath(l.proof_url);
+      const pBefore = l.before_storage_path || extractStoragePath(l.before_proof_url);
+      if (pAfter) storagePaths.push(pAfter);
+      if (pBefore) storagePaths.push(pBefore);
+    }
 
     if (storagePaths.length > 0) {
       const { error: rmErr } = await supabase.storage.from('chore-proofs').remove(storagePaths);

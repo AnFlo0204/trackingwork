@@ -2,13 +2,18 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
+  CheckCircle2,
   ClipboardList,
   Database,
   Download,
+  FileSpreadsheet,
   KeyRound,
+  PartyPopper,
   Plus,
+  RotateCcw,
   Shield,
   Sliders,
   Trash2,
@@ -25,7 +30,9 @@ import type {
   FeatureFlags,
   FundTransactionItem,
   ProfilePublic,
+  SharedPartyFund,
   WeeklyFundConfig,
+  WeeklySettlementRow,
 } from '@/lib/types';
 import { formatIsoToVn } from '@/lib/time';
 import { CHORE_ICON_OPTIONS, ChoreIcon } from './ChoreIcon';
@@ -37,13 +44,15 @@ interface AdminPanelProps {
   members: ProfilePublic[];
   assignedChores: AssignedChoreItem[];
   fundTransactions: FundTransactionItem[];
+  weeklySettlement: WeeklySettlementRow[];
+  sharedPartyFund: SharedPartyFund;
   featureFlags: FeatureFlags;
   weeklyFundConfig: WeeklyFundConfig;
   retentionDays: number;
   lastCleanupAt: string | null;
   currentVnDate: string;
   onRefresh: () => Promise<void>;
-  onModerate: (log: ChoreLogItem) => Promise<void>;
+  onModerate: (log: ChoreLogItem, action?: 'reject' | 'rework_half_penalty') => Promise<void>;
   onInspectPhoto: (log: ChoreLogItem) => void;
 }
 
@@ -88,6 +97,8 @@ export function AdminPanel({
   members,
   assignedChores,
   fundTransactions,
+  weeklySettlement,
+  sharedPartyFund,
   featureFlags,
   weeklyFundConfig,
   retentionDays,
@@ -108,6 +119,8 @@ export function AdminPanel({
   const [choreCooldown, setChoreCooldown] = useState('30');
   const [choreFreq, setChoreFreq] = useState<ChoreFrequency>('daily');
   const [chorePenalty, setChorePenalty] = useState('20000');
+  const [choreRequireBA, setChoreRequireBA] = useState(false);
+  const [choreMinDuration, setChoreMinDuration] = useState('5');
   const [savingChore, setSavingChore] = useState(false);
 
   // Member form state
@@ -127,6 +140,7 @@ export function AdminPanel({
   const [adjAmount, setAdjAmount] = useState('20000');
   const [adjReason, setAdjReason] = useState('Hoàn tiền khiếu nại hợp lệ');
   const [savingAdj, setSavingAdj] = useState(false);
+  const [closingWeek, setClosingWeek] = useState(false);
 
   // Retention state
   const [retInput, setRetInput] = useState(String(retentionDays));
@@ -149,6 +163,7 @@ export function AdminPanel({
   }, [members, adjProfileId]);
 
   const memberRoster = members.filter((m) => m.role === 'member');
+  const flaggedLogs = logs.filter((l) => l.quality_status === 'flagged');
 
   function notify(type: 'ok' | 'err', text: string) {
     setFeedback({ type, text });
@@ -184,6 +199,35 @@ export function AdminPanel({
     notify('ok', 'Đã cập nhật cấu hình ví quỹ tuần.');
   }
 
+  async function updatePartyFund(opts: { show_banner?: boolean; reset_balance?: boolean }) {
+    const res = await fetch('/api/admin/fund', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'party_fund_config', ...opts }),
+    });
+    if (res.ok) {
+      await onRefresh();
+      notify('ok', opts.reset_balance ? 'Đã quyết toán / chi hết Quỹ Liên Hoan Chung.' : 'Đã cập nhật hiển thị Quỹ Liên Hoan Chung.');
+    }
+  }
+
+  async function handleCloseWeekSettlement() {
+    setClosingWeek(true);
+    try {
+      const res = await fetch('/api/admin/fund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'close_week_settlement' }),
+      });
+      if (res.ok) {
+        await onRefresh();
+        notify('ok', 'Đã chốt sổ và cấp quỹ tuần mới cho toàn bộ thành viên!');
+      }
+    } finally {
+      setClosingWeek(false);
+    }
+  }
+
   function startEditChore(c: Chore) {
     setEditingChoreId(c.id);
     setChoreTitle(c.title);
@@ -192,6 +236,8 @@ export function AdminPanel({
     setChoreCooldown(String(c.cooldown_minutes));
     setChoreFreq(c.frequency);
     setChorePenalty(String(c.penalty_amount || 20000));
+    setChoreRequireBA(Boolean(c.require_before_after));
+    setChoreMinDuration(String(c.min_duration_minutes ?? 5));
   }
 
   function resetChoreForm() {
@@ -202,6 +248,8 @@ export function AdminPanel({
     setChoreCooldown('30');
     setChoreFreq('daily');
     setChorePenalty('20000');
+    setChoreRequireBA(false);
+    setChoreMinDuration('5');
   }
 
   async function handleSaveChore(e: FormEvent) {
@@ -217,6 +265,8 @@ export function AdminPanel({
         cooldown_minutes: Number(choreCooldown || 0),
         frequency: choreFreq,
         penalty_amount: Number(chorePenalty || 20000),
+        require_before_after: choreRequireBA,
+        min_duration_minutes: choreRequireBA ? Number(choreMinDuration || 0) : 0,
       };
       const res = await fetch('/api/admin/chores', {
         method: editingChoreId ? 'PATCH' : 'POST',
@@ -425,8 +475,8 @@ export function AdminPanel({
             { key: 'assign', label: 'Giao việc', icon: ClipboardList },
             { key: 'chores', label: 'Việc nhà', icon: Shield },
             { key: 'members', label: 'Nhân sự', icon: Users },
-            { key: 'data', label: 'Quỹ & DL', icon: Database },
-          ] as const
+            { key: 'data', label: 'Quỹ & DL', icon: Database, badge: flaggedLogs.length },
+          ] as Array<{ key: AdminSection; label: string; icon: typeof Sliders; badge?: number }>
         ).map((tab) => {
           const Icon = tab.icon;
           const active = section === tab.key;
@@ -435,7 +485,7 @@ export function AdminPanel({
               key={tab.key}
               type="button"
               onClick={() => setSection(tab.key)}
-              className={`h-11 rounded-xl text-[10px] font-semibold flex flex-col items-center justify-center gap-0.5 transition ${
+              className={`relative h-11 rounded-xl text-[10px] font-semibold flex flex-col items-center justify-center gap-0.5 transition ${
                 active
                   ? 'bg-white dark:bg-[#0F172A] text-[#059669] shadow-sm'
                   : 'text-[#6B7280] dark:text-[#94A3B8]'
@@ -443,6 +493,9 @@ export function AdminPanel({
             >
               <Icon className="w-3.5 h-3.5" />
               {tab.label}
+              {tab.badge && tab.badge > 0 ? (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#DC2626]" />
+              ) : null}
             </button>
           );
         })}
@@ -460,7 +513,7 @@ export function AdminPanel({
         </div>
       )}
 
-      {/* 1. Feature Flags + Weekly Fund Global Config */}
+      {/* 1. Feature Flags + Weekly Fund & Party Fund Toggles */}
       {section === 'flags' && (
         <div className="space-y-3">
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
@@ -544,6 +597,35 @@ export function AdminPanel({
                 </div>
               </div>
             )}
+
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#F3F4F6] dark:border-[#334155]">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <PartyPopper className="w-4 h-4 text-[#D97706]" />
+                  <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
+                    Banner Quỹ Liên Hoan Chung
+                  </p>
+                </div>
+                <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] mt-0.5">
+                  Hiển thị tổng tiền phạt tích luỹ ở trang chủ.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={sharedPartyFund.show_banner}
+                onClick={() => updatePartyFund({ show_banner: !sharedPartyFund.show_banner })}
+                className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${
+                  sharedPartyFund.show_banner ? 'bg-[#059669]' : 'bg-[#D1D5DB] dark:bg-[#475569]'
+                }`}
+              >
+                <span
+                  className={`block w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                    sharedPartyFund.show_banner ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
 
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl divide-y divide-[#F3F4F6] dark:divide-[#334155]">
@@ -592,7 +674,7 @@ export function AdminPanel({
         />
       )}
 
-      {/* 3. Chore & Cooldown Management */}
+      {/* 3. Chore, Before/After & Min Duration Management */}
       {section === 'chores' && (
         <div className="space-y-3">
           <form
@@ -618,7 +700,7 @@ export function AdminPanel({
               type="text"
               value={choreTitle}
               onChange={(e) => setChoreTitle(e.target.value)}
-              placeholder="Tên công việc (VD: Giặt đồ)"
+              placeholder="Tên công việc (VD: Rửa chén)"
               required
               className="w-full h-12 px-3.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm"
             />
@@ -696,6 +778,37 @@ export function AdminPanel({
               </div>
             </div>
 
+            {/* Before & After Toggle + Minimum Duration */}
+            <div className="rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] p-3 space-y-2.5">
+              <label className="flex items-center justify-between cursor-pointer">
+                <span className="text-xs font-semibold text-[#111827] dark:text-[#F8FAFC]">
+                  Yêu cầu ảnh Trước & Sau
+                </span>
+                <input
+                  type="checkbox"
+                  checked={choreRequireBA}
+                  onChange={(e) => setChoreRequireBA(e.target.checked)}
+                  className="w-4 h-4 accent-[#059669]"
+                />
+              </label>
+
+              {choreRequireBA && (
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#6B7280] dark:text-[#94A3B8] mb-1">
+                    Thời gian làm tối thiểu trước khi chụp ảnh Sau (phút)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={240}
+                    value={choreMinDuration}
+                    onChange={(e) => setChoreMinDuration(e.target.value)}
+                    className="w-full h-11 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm tabular-nums"
+                  />
+                </div>
+              )}
+            </div>
+
             <button
               type="submit"
               disabled={savingChore}
@@ -723,6 +836,11 @@ export function AdminPanel({
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
                       {c.title}
+                      {c.require_before_after && (
+                        <span className="ml-1.5 text-[10px] font-semibold text-[#D97706]">
+                          (Trước/Sau {c.min_duration_minutes}p)
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
                       +{c.points} đ • Phạt {c.penalty_amount.toLocaleString('vi-VN')}đ • Chờ{' '}
@@ -765,7 +883,7 @@ export function AdminPanel({
         </div>
       )}
 
-      {/* 4. 10-Slot Member Roster + Delegated Assigner Switch + Weekly Allowance */}
+      {/* 4. 10-Slot Member Roster */}
       {section === 'members' && (
         <div className="space-y-3">
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
@@ -897,7 +1015,6 @@ export function AdminPanel({
                   </div>
                 </div>
 
-                {/* Permission toggle: Quyền giao việc */}
                 <div className="flex items-center justify-between rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] px-3 py-2">
                   <span className="text-xs font-semibold text-[#374151] dark:text-[#CBD5E1]">
                     Quyền giao việc
@@ -919,7 +1036,6 @@ export function AdminPanel({
                   </button>
                 </div>
 
-                {/* Weekly Allowance Config per member */}
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
                     <label className="block text-[10px] font-semibold text-[#6B7280] dark:text-[#94A3B8] mb-0.5">
@@ -978,9 +1094,126 @@ export function AdminPanel({
         </div>
       )}
 
-      {/* 5. Weekly Fund Adjustments + Data Retention, Backup CSV & Quick Moderation */}
+      {/* 5. Weekly Settlement, Party Fund, Adjustments, Retention & Quality Moderation */}
       {section === 'data' && (
         <div className="space-y-3">
+          {/* Highlighted Flagged ("Làm ẩu") Moderation Queue */}
+          {flaggedLogs.length > 0 && (
+            <div className="bg-[#FFFBEB] dark:bg-[#451A03]/40 border border-[#F59E0B] dark:border-[#D97706] rounded-2xl p-4 space-y-2.5">
+              <div className="flex items-center gap-1.5 text-sm font-bold text-[#B45309] dark:text-[#FCD34D]">
+                <AlertTriangle className="w-4 h-4" />
+                Cần duyệt báo cáo &ldquo;Làm ẩu&rdquo; ({flaggedLogs.length})
+              </div>
+              {flaggedLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="bg-white dark:bg-[#1E293B] rounded-xl p-3 space-y-2 border border-[#FDE68A] dark:border-[#92400E]"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onInspectPhoto(log)}
+                    className="flex items-center gap-2.5 w-full text-left"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={log.proof_url}
+                      alt={log.chore_title}
+                      className="w-11 h-11 rounded-lg object-cover shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold truncate">
+                        {log.member_name} • {log.chore_title}
+                      </p>
+                      <p className="text-[11px] text-[#6B7280] tabular-nums">
+                        {formatIsoToVn(log.server_timestamp)}
+                      </p>
+                    </div>
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onModerate(log, 'rework_half_penalty')}
+                      className="h-9 rounded-lg bg-[#D97706] text-white text-xs font-semibold"
+                    >
+                      Làm lại / Phạt 50%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onModerate(log, 'reject')}
+                      className="h-9 rounded-lg bg-[#DC2626] text-white text-xs font-semibold"
+                    >
+                      Hủy hoàn toàn
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Weekly Settlement + Close Week Button + Party Fund */}
+          <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-[#059669]" />
+                <h3 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
+                  Quyết toán tuần & Quỹ Liên Hoan
+                </h3>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-[#FFFBEB] dark:bg-[#451A03]/40 border border-[#FDE68A] dark:border-[#92400E] p-3 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-semibold text-[#B45309] dark:text-[#FCD34D]">
+                  Quỹ Liên Hoan Chung
+                </p>
+                <p className="text-base font-bold text-[#92400E] dark:text-[#FDE68A] tabular-nums">
+                  {sharedPartyFund.balance.toLocaleString('vi-VN')}đ
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={sharedPartyFund.balance === 0}
+                onClick={() => updatePartyFund({ reset_balance: true })}
+                className="h-9 px-3 rounded-lg bg-[#D97706] disabled:opacity-40 text-white text-xs font-semibold inline-flex items-center gap-1"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Chi quỹ / 0đ
+              </button>
+            </div>
+
+            {weeklySettlement.length > 0 && (
+              <div className="divide-y divide-[#F3F4F6] dark:divide-[#334155] text-xs tabular-nums">
+                {weeklySettlement.map((r) => (
+                  <div key={r.profile_id} className="py-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
+                        {r.display_name}
+                      </p>
+                      <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8]">
+                        Cấp {r.weekly_allowance.toLocaleString('vi-VN')}đ • Trừ -
+                        {(r.total_penalties + r.total_bounty_paid).toLocaleString('vi-VN')}đ • Hộ +
+                        {r.total_bounty_earned.toLocaleString('vi-VN')}đ
+                      </p>
+                    </div>
+                    <span className="font-bold text-[#059669] shrink-0">
+                      {r.current_balance.toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              type="button"
+              disabled={closingWeek}
+              onClick={handleCloseWeekSettlement}
+              className="w-full h-12 rounded-xl bg-[#111827] dark:bg-[#059669] text-white text-sm font-semibold flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {closingWeek ? 'Đang chốt sổ...' : 'Chốt sổ tuần mới'}
+            </button>
+          </div>
+
           {/* Manual Balance Adjustment / Refund */}
           <form
             onSubmit={handleManualAdjustment}
@@ -1171,7 +1404,7 @@ export function AdminPanel({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onModerate(log)}
+                  onClick={() => onModerate(log, 'reject')}
                   className="h-9 px-2.5 rounded-lg bg-[#FEF2F2] dark:bg-[#450A0A] text-[#DC2626] dark:text-[#FCA5A5] text-[11px] font-semibold shrink-0"
                 >
                   Hủy lượt

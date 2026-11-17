@@ -27,8 +27,23 @@ export interface Chore {
   sort_order: number;
   frequency: ChoreFrequency;
   penalty_amount: number;
+  require_before_after: boolean;
+  min_duration_minutes: number;
   is_active: boolean;
   created_at: string;
+}
+
+export interface ChoreSessionItem {
+  id: string;
+  chore_id: string;
+  profile_id: string;
+  assigned_chore_id: string | null;
+  cycle_key: string | null;
+  before_proof_url: string;
+  before_storage_path: string;
+  started_at: string;
+  unlock_at: string;
+  status: 'in_progress' | 'completed' | 'cancelled';
 }
 
 export interface ChoreLogItem {
@@ -39,8 +54,15 @@ export interface ChoreLogItem {
   cycle_key: string | null;
   proof_url: string;
   storage_path: string;
+  before_proof_url: string | null;
+  before_storage_path: string | null;
+  started_at: string | null;
   points_awarded: number;
   chore_title_snapshot: string;
+  quality_status: 'none' | 'ok' | 'flagged' | 'reopened';
+  ok_count: number;
+  sloppy_count: number;
+  my_reaction: 'ok' | 'sloppy' | null;
   server_timestamp: string;
   created_at: string;
   member_name: string;
@@ -53,6 +75,8 @@ export interface AssignedChoreItem {
   id: string;
   chore_id: string;
   assignee_id: string;
+  effective_assignee_id: string;
+  effective_assignee_name: string;
   assigned_by: string | null;
   schedule_type: AssignmentScheduleType;
   days_of_week: number[];
@@ -71,6 +95,38 @@ export interface AssignedChoreItem {
   deadline_iso: string | null;
   completed_at_iso: string | null;
   completed_proof_url: string | null;
+  active_swap: ShiftSwapItem | null;
+}
+
+export interface ShiftSwapItem {
+  id: string;
+  assigned_chore_id: string;
+  cycle_key: string;
+  requester_id: string;
+  requester_name: string;
+  target_id: string | null;
+  target_name: string | null;
+  accepted_by: string | null;
+  accepted_by_name: string | null;
+  bounty_amount: number;
+  note: string;
+  status: 'open' | 'accepted' | 'completed' | 'cancelled';
+  chore_id: string;
+  chore_title: string;
+  chore_icon: string;
+  due_time: string;
+  penalty_amount: number;
+  created_at: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  profile_id: string;
+  kind: 'deadline_30m' | 'deadline_5m' | 'swap_request' | 'swap_accepted' | 'balance_update' | 'quality_alert';
+  title: string;
+  body: string;
+  is_read: boolean;
+  created_at: string;
 }
 
 export interface FundTransactionItem {
@@ -79,6 +135,7 @@ export interface FundTransactionItem {
   assigned_chore_id: string | null;
   chore_id: string | null;
   tx_type: 'weekly_reset' | 'penalty' | 'adjustment' | 'refund';
+  category: string;
   amount: number;
   balance_after: number;
   cycle_key: string | null;
@@ -88,10 +145,26 @@ export interface FundTransactionItem {
   member_name: string;
 }
 
+export interface WeeklySettlementRow {
+  profile_id: string;
+  display_name: string;
+  weekly_allowance: number;
+  total_penalties: number;
+  total_bounty_paid: number;
+  total_bounty_earned: number;
+  total_refunds: number;
+  current_balance: number;
+}
+
+export interface SharedPartyFund {
+  balance: number;
+  show_banner: boolean;
+}
+
 export interface WeeklyFundConfig {
   enabled: boolean;
-  reset_day: number; // 0=Sun, 1=Mon..6=Sat
-  reset_hour: number; // 0..23 UTC+7
+  reset_day: number;
+  reset_hour: number;
 }
 
 export interface PenaltyItem {
@@ -117,10 +190,15 @@ export interface FeatureFlags {
 export interface BootstrapPayload {
   me: ProfilePublic;
   chores: Chore[];
+  activeSessions: ChoreSessionItem[];
   logs: ChoreLogItem[];
   members: ProfilePublic[];
   assignedChores: AssignedChoreItem[];
+  shiftSwaps: ShiftSwapItem[];
+  notifications: NotificationItem[];
   fundTransactions: FundTransactionItem[];
+  weeklySettlement: WeeklySettlementRow[];
+  sharedPartyFund: SharedPartyFund;
   weeklyFundConfig: WeeklyFundConfig;
   penalties: PenaltyItem[];
   featureFlags: FeatureFlags;
@@ -129,6 +207,7 @@ export interface BootstrapPayload {
   serverNowIso: string;
   serverVnFormatted: string;
   currentVnDate: string;
+  currentPeriodKey: string;
 }
 
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
@@ -140,6 +219,6 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
 
 export const DEFAULT_WEEKLY_FUND_CONFIG: WeeklyFundConfig = {
   enabled: true,
-  reset_day: 1, // Thứ 2
-  reset_hour: 0, // 00:00 UTC+7
+  reset_day: 1,
+  reset_hour: 0,
 };

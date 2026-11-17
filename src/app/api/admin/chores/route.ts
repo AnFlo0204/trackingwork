@@ -24,6 +24,10 @@ export async function POST(req: Request) {
 
     const nextOrder = (existing?.[0]?.sort_order ?? 0) + 1;
     const frequency = ['always', 'daily', 'weekly'].includes(body?.frequency) ? body.frequency : 'daily';
+    const requireBeforeAfter = Boolean(body?.require_before_after ?? false);
+    const minDurationMinutes = requireBeforeAfter
+      ? Math.max(0, Math.min(240, Math.floor(Number(body?.min_duration_minutes ?? 0))))
+      : 0;
 
     const { data, error } = await supabase
       .from('chores')
@@ -34,6 +38,8 @@ export async function POST(req: Request) {
         cooldown_minutes: Math.max(0, Math.min(10080, Math.floor(Number(body?.cooldown_minutes ?? 30)))),
         frequency,
         penalty_amount: Math.max(0, Math.floor(Number(body?.penalty_amount ?? 20000))),
+        require_before_after: requireBeforeAfter,
+        min_duration_minutes: minDurationMinutes,
         sort_order: nextOrder,
         is_active: true,
       })
@@ -67,7 +73,6 @@ export async function PATCH(req: Request) {
 
     const supabase = getSupabaseAdmin();
 
-    // Handle swap reorder
     if (body?.move === 'up' || body?.move === 'down') {
       const { data: allChores } = await supabase
         .from('chores')
@@ -106,6 +111,15 @@ export async function PATCH(req: Request) {
     if (typeof body.penalty_amount !== 'undefined') {
       updates.penalty_amount = Math.max(0, Math.floor(Number(body.penalty_amount)));
     }
+    if (typeof body.require_before_after === 'boolean') {
+      updates.require_before_after = body.require_before_after;
+    }
+    if (typeof body.min_duration_minutes !== 'undefined') {
+      updates.min_duration_minutes = Math.max(
+        0,
+        Math.min(240, Math.floor(Number(body.min_duration_minutes))),
+      );
+    }
     if (typeof body.is_active === 'boolean') updates.is_active = body.is_active;
 
     const { error } = await supabase.from('chores').update(updates).eq('id', id);
@@ -136,12 +150,13 @@ export async function DELETE(req: Request) {
 
     const supabase = getSupabaseAdmin();
 
-    // Clean up associated proof images before cascading delete
     const { data: logs } = await supabase
       .from('chore_logs')
-      .select('storage_path')
+      .select('storage_path, before_storage_path')
       .eq('chore_id', id);
-    const paths = (logs || []).map((l) => l.storage_path).filter(Boolean);
+    const paths = (logs || [])
+      .flatMap((l) => [l.storage_path, l.before_storage_path])
+      .filter(Boolean) as string[];
     if (paths.length > 0) {
       await supabase.storage.from('chore-proofs').remove(paths);
     }

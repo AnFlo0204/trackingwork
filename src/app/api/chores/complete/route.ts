@@ -15,6 +15,7 @@ export async function POST(req: Request) {
     const choreId = String(formData.get('choreId') || '').trim();
     const assignedChoreId = String(formData.get('assignedChoreId') || '').trim() || null;
     const requestedCycleKey = String(formData.get('cycleKey') || '').trim() || null;
+    const sessionId = String(formData.get('sessionId') || '').trim() || null;
     const photo = formData.get('photo');
 
     if (!choreId || !(photo instanceof Blob)) {
@@ -55,8 +56,67 @@ export async function POST(req: Request) {
     const todayCycleKey = getVnDateParts(serverNowMs).dateStr;
     let resolvedCycleKey: string | null = requestedCycleKey || todayCycleKey;
 
+    // 1. Validate Before/After session if chore requires it
+    let beforeProofUrl: string | null = null;
+    let beforeStoragePath: string | null = null;
+    let startedAt: string | null = null;
+    let activeSessionId: string | null = null;
+
+    if (chore.require_before_after) {
+      const sessionQuery = supabase
+        .from('chore_sessions')
+        .select('*')
+        .eq('profile_id', me.id)
+        .eq('chore_id', chore.id)
+        .eq('status', 'in_progress')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      const { data: sessionRow } = sessionId
+        ? await supabase
+            .from('chore_sessions')
+            .select('*')
+            .eq('id', sessionId)
+            .eq('profile_id', me.id)
+            .eq('status', 'in_progress')
+            .maybeSingle()
+        : await sessionQuery.maybeSingle();
+
+      if (!sessionRow) {
+        return NextResponse.json(
+          { error: 'Việc này yêu cầu chụp ảnh Trước khi làm trước khi hoàn thành.' },
+          { status: 400 },
+        );
+      }
+
+      const unlockMs = Date.parse(sessionRow.unlock_at);
+      if (serverNowMs < unlockMs) {
+        const remainSec = Math.ceil((unlockMs - serverNowMs) / 1000);
+        const mins = Math.floor(remainSec / 60);
+        const secs = remainSec % 60;
+        return NextResponse.json(
+          {
+            error: `Chưa đủ thời gian tối thiểu (${chore.min_duration_minutes} phút). Vui lòng chờ thêm ${mins}p ${secs}s.`,
+          },
+          { status: 429 },
+        );
+      }
+
+      beforeProofUrl = sessionRow.before_proof_url;
+      beforeStoragePath = sessionRow.before_storage_path;
+      startedAt = sessionRow.started_at;
+      activeSessionId = sessionRow.id;
+    }
+
+    // 2. Validate Assignment & Accepted Shift Swaps
+    let acceptedSwap: {
+      id: string;
+      requester_id: string;
+      accepted_by: string | null;
+      bounty_amount: number;
+    } | null = null;
+
     if (assignedChoreId) {
-      // Validate assignment belongs to caller and is not already completed for this cycle
       const { data: assignment } = await supabase
         .from('assigned_chores')
         .select('id, assignee_id, chore_id, is_active, schedule_type, due_date')
@@ -66,11 +126,23 @@ export async function POST(req: Request) {
       if (!assignment || !assignment.is_active) {
         return NextResponse.json({ error: 'Nhiệm vụ được giao không còn hiệu lực.' }, { status: 404 });
       }
-      if (assignment.assignee_id !== me.id) {
-        return NextResponse.json({ error: 'Nhiệm vụ này được giao cho thành viên khác.' }, { status: 403 });
-      }
       if (assignment.schedule_type === 'once' && assignment.due_date) {
         resolvedCycleKey = assignment.due_date;
+      }
+
+      const { data: swapRow } = await supabase
+        .from('shift_swaps')
+        .select('id, requester_id, accepted_by, bounty_amount')
+        .eq('assigned_chore_id', assignedChoreId)
+        .eq('cycle_key', resolvedCycleKey)
+        .eq('status', 'accepted')
+        .maybeSingle();
+
+      acceptedSwap = swapRow || null;
+      const effectiveOwnerId = acceptedSwap?.accepted_by || assignment.assignee_id;
+
+      if (effectiveOwnerId !== me.id) {
+        return NextResponse.json({ error: 'Nhiệm vụ này thuộc về thành viên khác.' }, { status: 403 });
       }
 
       const { data: dupLog } = await supabase
@@ -83,12 +155,11 @@ export async function POST(req: Request) {
 
       if (dupLog) {
         return NextResponse.json(
-          { error: 'Bạn đã hoàn thành nhiệm vụ được giao trong chu kỳ này rồi.' },
+          { error: 'Nhiệm vụ được giao trong chu kỳ này đã hoàn thành rồi.' },
           { status: 409 },
         );
       }
     } else {
-      // Standard shared-chore cooldown check
       const cooldownMs = Math.max(0, Number(chore.cooldown_minutes || 0)) * 60_000;
       if (latestLogRes.data && cooldownMs > 0) {
         const lastMs = Date.parse(latestLogRes.data.server_timestamp);
@@ -133,6 +204,9 @@ export async function POST(req: Request) {
         cycle_key: resolvedCycleKey,
         proof_url: publicUrlData.publicUrl,
         storage_path: storagePath,
+        before_proof_url: beforeProofUrl,
+        before_storage_path: beforeStoragePath,
+        started_at: startedAt,
         points_awarded: pointsAwarded,
         chore_title_snapshot: chore.title,
         server_timestamp: serverTime.isoUtc,
@@ -144,6 +218,93 @@ export async function POST(req: Request) {
       await supabase.storage.from('chore-proofs').remove([storagePath]);
       console.error('Insert log error:', insertErr);
       return NextResponse.json({ error: 'Không thể lưu lịch sử hoàn thành.' }, { status: 500 });
+    }
+
+    if (activeSessionId) {
+      await supabase
+        .from('chore_sessions')
+        .update({ status: 'completed' })
+        .eq('id', activeSessionId);
+    }
+
+    // 3. Settle Shift Swap Bounty Transfer upon verified completion
+    if (acceptedSwap && acceptedSwap.accepted_by === me.id) {
+      await supabase
+        .from('shift_swaps')
+        .update({ status: 'completed', completed_at: serverTime.isoUtc })
+        .eq('id', acceptedSwap.id);
+
+      const bounty = Number(acceptedSwap.bounty_amount || 0);
+      if (bounty > 0 && acceptedSwap.requester_id !== me.id) {
+        const [{ data: reqProf }, { data: helperProf }] = await Promise.all([
+          supabase
+            .from('profiles')
+            .select('id, display_name, current_balance')
+            .eq('id', acceptedSwap.requester_id)
+            .maybeSingle(),
+          supabase
+            .from('profiles')
+            .select('id, display_name, current_balance')
+            .eq('id', me.id)
+            .maybeSingle(),
+        ]);
+
+        if (reqProf && helperProf) {
+          const reqNewBal = Number(reqProf.current_balance || 0) - bounty;
+          const helperNewBal = Number(helperProf.current_balance || 0) + bounty;
+
+          await Promise.all([
+            supabase
+              .from('profiles')
+              .update({ current_balance: reqNewBal, updated_at: serverTime.isoUtc })
+              .eq('id', reqProf.id),
+            supabase
+              .from('profiles')
+              .update({ current_balance: helperNewBal, updated_at: serverTime.isoUtc })
+              .eq('id', helperProf.id),
+            supabase.from('fund_transactions').insert([
+              {
+                profile_id: reqProf.id,
+                assigned_chore_id: assignedChoreId,
+                chore_id: chore.id,
+                tx_type: 'adjustment',
+                category: 'bounty_paid',
+                amount: -bounty,
+                balance_after: reqNewBal,
+                cycle_key: resolvedCycleKey,
+                description: `Thưởng làm hộ (${helperProf.display_name}): ${chore.title}`,
+                server_timestamp: serverTime.isoUtc,
+              },
+              {
+                profile_id: helperProf.id,
+                assigned_chore_id: assignedChoreId,
+                chore_id: chore.id,
+                tx_type: 'refund',
+                category: 'bounty_earned',
+                amount: bounty,
+                balance_after: helperNewBal,
+                cycle_key: resolvedCycleKey,
+                description: `Nhận thưởng làm hộ (${reqProf.display_name}): ${chore.title}`,
+                server_timestamp: serverTime.isoUtc,
+              },
+            ]),
+            supabase.from('notifications').insert([
+              {
+                profile_id: reqProf.id,
+                kind: 'balance_update',
+                title: `Đã hoàn thành ca nhờ làm hộ`,
+                body: `${helperProf.display_name} đã hoàn thành ${chore.title}. Chuyển thưởng -${bounty.toLocaleString('vi-VN')}đ.`,
+              },
+              {
+                profile_id: helperProf.id,
+                kind: 'balance_update',
+                title: `Nhận thưởng +${bounty.toLocaleString('vi-VN')}đ`,
+                body: `Hoàn thành việc làm hộ ${chore.title} cho ${reqProf.display_name}.`,
+              },
+            ]),
+          ]);
+        }
+      }
     }
 
     await bumpSyncSignal('all');

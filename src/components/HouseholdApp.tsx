@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type TouchEvent } from 'react';
 import {
   BarChart3,
+  Bell,
   CheckSquare,
   ClipboardList,
   History,
@@ -11,16 +12,18 @@ import {
   RefreshCw,
   Shield,
   Sun,
+  WifiOff,
 } from 'lucide-react';
 import { getSupabaseBrowser } from '@/lib/supabaseClient';
+import { flushOfflineProofQueue, haptic, listOfflineProofs } from '@/lib/offlineQueue';
 import type {
   AssignedChoreItem,
   BootstrapPayload,
-  Chore,
   ChoreLogItem,
   ProfilePublic,
 } from '@/lib/types';
 import { LoginScreen } from './LoginScreen';
+import { InstallBanner } from './InstallBanner';
 import { ChoreBoard } from './ChoreBoard';
 import { ActivityHistory } from './ActivityHistory';
 import { AnalyticsView } from './AnalyticsView';
@@ -29,6 +32,8 @@ import { AssignTasksPanel } from './AssignTasksPanel';
 import { CameraCaptureSheet, type CaptureTarget } from './CameraCaptureSheet';
 import { PhotoViewerModal } from './PhotoViewerModal';
 import { WeeklyWalletDrawer } from './WeeklyWalletDrawer';
+import { NotificationDrawer } from './NotificationDrawer';
+import { ShiftSwapSheet } from './ShiftSwapSheet';
 
 type TabKey = 'chores' | 'history' | 'stats' | 'assign' | 'admin';
 
@@ -43,10 +48,28 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   const [captureTarget, setCaptureTarget] = useState<CaptureTarget | null>(null);
   const [inspectingLog, setInspectingLog] = useState<ChoreLogItem | null>(null);
   const [walletOpen, setWalletOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [swapAssignment, setSwapAssignment] = useState<AssignedChoreItem | null>(null);
+
+  const [offlineCount, setOfflineCount] = useState(0);
+  const [offlineNotice, setOfflineNotice] = useState<string | null>(null);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
+  const [pullDist, setPullDist] = useState(0);
+  const touchStartY = useRef<number | null>(null);
+  const sentLocalPushKeys = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const saved = localStorage.getItem('hct_dark');
     if (saved === '1') setDarkMode(true);
+
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    }
+    if (typeof Notification !== 'undefined') {
+      setNotifPermission(Notification.permission);
+    } else {
+      setNotifPermission('unsupported');
+    }
   }, []);
 
   useEffect(() => {
@@ -76,11 +99,26 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     }
   }, []);
 
+  const syncOfflineQueue = useCallback(async () => {
+    const queued = await listOfflineProofs();
+    setOfflineCount(queued.length);
+    if (queued.length > 0 && navigator.onLine) {
+      const res = await flushOfflineProofQueue();
+      setOfflineCount(res.remaining);
+      if (res.synced > 0) {
+        setOfflineNotice(`Đã tự động đồng bộ ${res.synced} ảnh từ hàng đợi ngoại tuyến.`);
+        setTimeout(() => setOfflineNotice(null), 4000);
+        await loadBootstrap(true);
+      }
+    }
+  }, [loadBootstrap]);
+
   useEffect(() => {
     if (authed) {
       void loadBootstrap(false);
+      void syncOfflineQueue();
     }
-  }, [authed, loadBootstrap]);
+  }, [authed, loadBootstrap, syncOfflineQueue]);
 
   useEffect(() => {
     if (!authed) return;
@@ -99,10 +137,16 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     function handleVisible() {
       if (document.visibilityState === 'visible') {
         void loadBootstrap(true);
+        void syncOfflineQueue();
       }
     }
+    function handleOnline() {
+      void syncOfflineQueue();
+    }
+
     window.addEventListener('visibilitychange', handleVisible);
     window.addEventListener('focus', handleVisible);
+    window.addEventListener('online', handleOnline);
 
     return () => {
       if (channel && supabase) {
@@ -110,13 +154,87 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
       }
       window.removeEventListener('visibilitychange', handleVisible);
       window.removeEventListener('focus', handleVisible);
+      window.removeEventListener('online', handleOnline);
     };
-  }, [authed, loadBootstrap]);
+  }, [authed, loadBootstrap, syncOfflineQueue]);
+
+  // Smart 30-min & 5-min deadline push reminders via Service Worker Notification API
+  useEffect(() => {
+    if (!authed || !data) return;
+
+    async function checkLocalDeadlineReminders() {
+      if (!data || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+      const nowMs = Date.now();
+      const myPending = data.assignedChores.filter(
+        (a) =>
+          a.is_active &&
+          a.effective_assignee_id === data.me.id &&
+          a.cycle_status === 'pending' &&
+          a.deadline_iso,
+      );
+
+      for (const a of myPending) {
+        const deadlineMs = Date.parse(a.deadline_iso!);
+        const remainMin = Math.ceil((deadlineMs - nowMs) / 60_000);
+        if (remainMin > 0 && remainMin <= 30) {
+          const bucket = remainMin <= 5 ? '5m' : '30m';
+          const key = `${a.id}::${a.current_cycle_key}::${bucket}`;
+          if (sentLocalPushKeys.current.has(key)) continue;
+          sentLocalPushKeys.current.add(key);
+
+          const title = `Nhắc việc: Còn ${remainMin} phút — ${a.chore_title}`;
+          const body =
+            a.penalty_amount > 0
+              ? `Hoàn thành trước ${a.due_time} để tránh bị trừ ${a.penalty_amount.toLocaleString('vi-VN')}đ.`
+              : `Hạn chót ${a.due_time}.`;
+
+          try {
+            const reg = await navigator.serviceWorker?.ready;
+            if (reg?.showNotification) {
+              await reg.showNotification(title, {
+                body,
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
+                tag: key,
+              });
+            } else {
+              new Notification(title, { body, icon: '/icon-192.png' });
+            }
+          } catch {
+            // ignore OS notification error
+          }
+        }
+      }
+    }
+
+    void checkLocalDeadlineReminders();
+    const timer = setInterval(() => void checkLocalDeadlineReminders(), 60_000);
+    return () => clearInterval(timer);
+  }, [authed, data]);
+
+  async function handleRequestNotifPermission() {
+    if (typeof Notification === 'undefined') return;
+    const perm = await Notification.requestPermission();
+    setNotifPermission(perm);
+    haptic(15);
+  }
+
+  async function handleMarkAllRead() {
+    await fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    await loadBootstrap(true);
+  }
 
   async function handleLoginSuccess(_user: ProfilePublic) {
     setAuthed(true);
     setTab('chores');
     await loadBootstrap(false);
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().then(setNotifPermission).catch(() => undefined);
+    }
   }
 
   async function handleLogout() {
@@ -125,15 +243,56 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     setData(null);
   }
 
-  async function handleModerateLog(log: ChoreLogItem) {
+  async function handleModerateLog(
+    log: ChoreLogItem,
+    action: 'reject' | 'rework_half_penalty' = 'reject',
+  ) {
     const res = await fetch('/api/admin/moderate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ logId: log.id }),
+      body: JSON.stringify({ logId: log.id, action }),
     });
     if (res.ok) {
       await loadBootstrap(true);
     }
+  }
+
+  async function handleReactLog(log: ChoreLogItem, reaction: 'ok' | 'sloppy') {
+    const res = await fetch('/api/logs/react', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logId: log.id, reaction }),
+    });
+    if (res.ok) {
+      await loadBootstrap(true);
+    }
+  }
+
+  // Pull-to-refresh handlers
+  function onTouchStart(e: TouchEvent<HTMLDivElement>) {
+    if (window.scrollY <= 2 && e.touches.length === 1) {
+      touchStartY.current = e.touches[0].clientY;
+    } else {
+      touchStartY.current = null;
+    }
+  }
+
+  function onTouchMove(e: TouchEvent<HTMLDivElement>) {
+    if (touchStartY.current === null || e.touches.length !== 1) return;
+    const delta = e.touches[0].clientY - touchStartY.current;
+    if (delta > 0 && window.scrollY <= 2) {
+      setPullDist(Math.min(84, Math.round(delta * 0.45)));
+    }
+  }
+
+  function onTouchEnd() {
+    if (pullDist >= 56) {
+      haptic(15);
+      void loadBootstrap(true);
+      void syncOfflineQueue();
+    }
+    setPullDist(0);
+    touchStartY.current = null;
   }
 
   const showStatsTab = Boolean(
@@ -144,6 +303,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   );
   const isAdmin = data?.me.role === 'admin';
   const isDelegatedAssigner = Boolean(data && !isAdmin && data.me.can_assign_tasks);
+  const unreadNotifs = (data?.notifications || []).filter((n) => !n.is_read).length;
 
   useEffect(() => {
     if (tab === 'stats' && !showStatsTab) setTab('chores');
@@ -153,13 +313,21 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
 
   return (
     <div className="min-h-screen w-full flex justify-center bg-[#E5E7EB] dark:bg-[#090D16]">
-      <div className="w-full max-w-[430px] min-h-screen bg-[#F8F9FA] dark:bg-[#0F172A] sm:border-x sm:border-[#D1D5DB] dark:sm:border-[#1E293B] sm:shadow-xl flex flex-col relative">
+      <div
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        className="w-full max-w-[430px] min-h-screen bg-[#F8F9FA] dark:bg-[#0F172A] sm:border-x sm:border-[#D1D5DB] dark:sm:border-[#1E293B] sm:shadow-xl flex flex-col relative"
+      >
         {!authed ? (
-          <LoginScreen
-            onSuccess={handleLoginSuccess}
-            darkMode={darkMode}
-            onToggleDark={() => setDarkMode((d) => !d)}
-          />
+          <>
+            <InstallBanner />
+            <LoginScreen
+              onSuccess={handleLoginSuccess}
+              darkMode={darkMode}
+              onToggleDark={() => setDarkMode((d) => !d)}
+            />
+          </>
         ) : loading && !data ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-3">
             <div className="w-8 h-8 border-2 border-[#059669] border-t-transparent rounded-full animate-spin" />
@@ -191,10 +359,30 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                 </p>
               </div>
 
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
-                  onClick={() => void loadBootstrap(true)}
+                  onClick={() => {
+                    haptic(10);
+                    setNotifOpen(true);
+                  }}
+                  aria-label="Thông báo"
+                  className="relative w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
+                >
+                  <Bell className="w-4 h-4" />
+                  {unreadNotifs > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#DC2626] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                      {unreadNotifs > 9 ? '9+' : unreadNotifs}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic(10);
+                    void loadBootstrap(true);
+                    void syncOfflineQueue();
+                  }}
                   aria-label="Làm mới"
                   className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
                 >
@@ -219,22 +407,60 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               </div>
             </header>
 
+            {/* Pull-to-refresh indicator */}
+            {pullDist > 12 && (
+              <div
+                style={{ height: `${pullDist}px` }}
+                className="flex items-center justify-center text-xs font-medium text-[#059669] overflow-hidden"
+              >
+                {pullDist >= 56 ? 'Thả tay để làm mới...' : 'Kéo xuống để làm mới'}
+              </div>
+            )}
+
+            {/* PWA Install Prompt Banner */}
+            <InstallBanner />
+
+            {/* Offline Sync Queue Banner */}
+            {(offlineCount > 0 || offlineNotice) && (
+              <div className="mx-4 mt-3 rounded-2xl bg-[#FFFBEB] dark:bg-[#451A03] border border-[#FDE68A] dark:border-[#92400E] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 text-[#B45309] dark:text-[#FCD34D] font-medium">
+                  <WifiOff className="w-4 h-4 shrink-0" />
+                  <span>
+                    {offlineNotice || `Đang chờ mạng để đồng bộ ${offlineCount} ảnh xác thực`}
+                  </span>
+                </div>
+                {offlineCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void syncOfflineQueue()}
+                    className="h-8 px-2.5 rounded-lg bg-[#D97706] text-white font-semibold shrink-0"
+                  >
+                    Đồng bộ
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Main Scroll Content */}
             <main className="flex-1 px-4 py-4 pb-24">
               {tab === 'chores' && (
                 <ChoreBoard
                   me={data.me}
                   chores={data.chores}
+                  activeSessions={data.activeSessions}
                   logs={data.logs}
                   assignedChores={data.assignedChores}
+                  shiftSwaps={data.shiftSwaps}
+                  fundTransactions={data.fundTransactions}
+                  sharedPartyFund={data.sharedPartyFund}
                   featureFlags={data.featureFlags}
                   weeklyFundConfig={data.weeklyFundConfig}
                   serverNowIso={data.serverNowIso}
-                  onStartComplete={(chore: Chore, assignedChore?: AssignedChoreItem | null) =>
-                    setCaptureTarget({ chore, assignedChore: assignedChore || null })
-                  }
+                  onStartCapture={(target) => setCaptureTarget(target)}
                   onInspectPhoto={(log) => setInspectingLog(log)}
                   onOpenWallet={() => setWalletOpen(true)}
+                  onOpenSwapSheet={(a) => setSwapAssignment(a)}
+                  onRefresh={() => loadBootstrap(true)}
                 />
               )}
 
@@ -245,6 +471,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   isAdmin={isAdmin}
                   onInspectPhoto={(log) => setInspectingLog(log)}
                   onModerate={handleModerateLog}
+                  onReact={handleReactLog}
                 />
               )}
 
@@ -254,6 +481,9 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   logs={data.logs}
                   members={data.members}
                   penalties={data.penalties}
+                  weeklySettlement={data.weeklySettlement}
+                  sharedPartyFund={data.sharedPartyFund}
+                  weeklyFundConfig={data.weeklyFundConfig}
                   featureFlags={data.featureFlags}
                   serverNowIso={data.serverNowIso}
                   isAdmin={isAdmin}
@@ -279,6 +509,8 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   members={data.members}
                   assignedChores={data.assignedChores}
                   fundTransactions={data.fundTransactions}
+                  weeklySettlement={data.weeklySettlement}
+                  sharedPartyFund={data.sharedPartyFund}
                   featureFlags={data.featureFlags}
                   weeklyFundConfig={data.weeklyFundConfig}
                   retentionDays={data.retentionDays}
@@ -375,7 +607,16 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               target={captureTarget}
               memberName={data.me.display_name}
               onClose={() => setCaptureTarget(null)}
-              onCompleted={() => loadBootstrap(true)}
+              onCompleted={async (offlineSaved) => {
+                if (offlineSaved) {
+                  const q = await listOfflineProofs();
+                  setOfflineCount(q.length);
+                  setOfflineNotice('Mất mạng — Ảnh đã lưu tạm và sẽ tự động tải lên khi có kết nối!');
+                  setTimeout(() => setOfflineNotice(null), 5000);
+                } else {
+                  await loadBootstrap(true);
+                }
+              }}
             />
 
             {/* Weekly Wallet Transaction History Drawer */}
@@ -386,12 +627,32 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               onClose={() => setWalletOpen(false)}
             />
 
+            {/* Notification Center Drawer */}
+            <NotificationDrawer
+              open={notifOpen}
+              notifications={data.notifications}
+              notifPermission={notifPermission}
+              onRequestPermission={handleRequestNotifPermission}
+              onMarkAllRead={handleMarkAllRead}
+              onClose={() => setNotifOpen(false)}
+            />
+
+            {/* Shift Swap & Bounty Sheet */}
+            <ShiftSwapSheet
+              assignment={swapAssignment}
+              members={data.members}
+              me={data.me}
+              onClose={() => setSwapAssignment(null)}
+              onCreated={() => loadBootstrap(true)}
+            />
+
             {/* Full-screen Pinch-to-Zoom Proof Viewer */}
             <PhotoViewerModal
               log={inspectingLog}
               isAdmin={isAdmin}
               onClose={() => setInspectingLog(null)}
               onModerate={handleModerateLog}
+              onReact={handleReactLog}
             />
           </>
         ) : null}
