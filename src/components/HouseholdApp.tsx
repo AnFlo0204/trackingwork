@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Shield,
   Sun,
+  Wallet,
   WifiOff,
 } from 'lucide-react';
 import { getSupabaseBrowser } from '@/lib/supabaseClient';
@@ -24,10 +25,12 @@ import type {
   ChoreLogItem,
   ProfilePublic,
 } from '@/lib/types';
+import { getInitials } from './ChoreIcon';
 import { LoginScreen } from './LoginScreen';
 import { InstallBanner } from './InstallBanner';
 import { ChoreBoard } from './ChoreBoard';
 import { ActivityHistory } from './ActivityHistory';
+import { AuditLogView } from './AuditLogView';
 import { AnalyticsView } from './AnalyticsView';
 import { AdminPanel } from './AdminPanel';
 import { AssignTasksPanel } from './AssignTasksPanel';
@@ -37,7 +40,7 @@ import { WeeklyWalletDrawer } from './WeeklyWalletDrawer';
 import { NotificationDrawer } from './NotificationDrawer';
 import { ShiftSwapSheet } from './ShiftSwapSheet';
 
-type TabKey = 'chores' | 'history' | 'stats' | 'assign' | 'admin';
+type TabKey = 'chores' | 'history' | 'audit' | 'stats' | 'assign' | 'admin';
 
 async function bootstrapFetcher(url: string): Promise<BootstrapPayload | null> {
   const res = await fetch(url, { cache: 'no-store' });
@@ -56,7 +59,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   const [darkMode, setDarkMode] = useState(false);
   const [authed, setAuthed] = useState(initialAuthed);
   const [tab, setTab] = useState<TabKey>('chores');
-  const [historySubView, setHistorySubView] = useState<'feed' | 'audit'>('feed');
 
   const [captureTarget, setCaptureTarget] = useState<CaptureTarget | null>(null);
   const [inspectingLog, setInspectingLog] = useState<ChoreLogItem | null>(null);
@@ -168,7 +170,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     };
   }, [authed, mutate, syncOfflineQueue]);
 
-  // Smart 30-min & 5-min deadline push reminders via Service Worker Notification API
   useEffect(() => {
     if (!authed || !data) return;
 
@@ -230,7 +231,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   }
 
   async function handleMarkAllRead() {
-    // Optimistic UI update
     if (data) {
       await mutate(
         {
@@ -278,7 +278,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   }
 
   async function handleReactLog(log: ChoreLogItem, reaction: 'ok' | 'sloppy') {
-    // Optimistic UI update for instant reaction feedback
     if (data) {
       const updatedLogs = data.logs.map((l) => {
         if (l.id !== log.id) return l;
@@ -351,209 +350,410 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     if (tab === 'assign' && !isDelegatedAssigner) setTab('chores');
   }, [tab, showStatsTab, isAdmin, isDelegatedAssigner]);
 
+  const pageTitle =
+    tab === 'chores'
+      ? 'Bảng việc nhà'
+      : tab === 'history'
+        ? 'Nhật ký hoạt động'
+        : tab === 'audit'
+          ? 'Nhật ký Minh bạch'
+          : tab === 'stats'
+            ? 'Thống kê & Xếp hạng'
+            : tab === 'assign'
+              ? 'Giao việc thành viên'
+              : 'Quản trị hệ thống';
+
+  if (!authed) {
+    return (
+      <div className="min-h-screen w-full bg-[#F8F9FA] dark:bg-[#0F172A]">
+        <InstallBanner />
+        <LoginScreen
+          onSuccess={handleLoginSuccess}
+          darkMode={darkMode}
+          onToggleDark={() => setDarkMode((d) => !d)}
+        />
+      </div>
+    );
+  }
+
+  if (isLoading && !data) {
+    return (
+      <div className="min-h-screen w-full bg-[#F8F9FA] dark:bg-[#0F172A] flex flex-col items-center justify-center p-8 space-y-3">
+        <div className="w-8 h-8 border-2 border-[#059669] border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-[#6B7280] dark:text-[#94A3B8]">Đang tải dữ liệu việc nhà...</p>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
   return (
-    <div className="min-h-screen w-full flex justify-center bg-[#E5E7EB] dark:bg-[#090D16]">
-      <div
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        className="w-full max-w-[430px] min-h-screen bg-[#F8F9FA] dark:bg-[#0F172A] sm:border-x sm:border-[#D1D5DB] dark:sm:border-[#1E293B] sm:shadow-xl flex flex-col relative"
-      >
-        {!authed ? (
-          <>
-            <InstallBanner />
-            <LoginScreen
-              onSuccess={handleLoginSuccess}
-              darkMode={darkMode}
-              onToggleDark={() => setDarkMode((d) => !d)}
-            />
-          </>
-        ) : isLoading && !data ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-3">
-            <div className="w-8 h-8 border-2 border-[#059669] border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-[#6B7280] dark:text-[#94A3B8]">Đang tải dữ liệu việc nhà...</p>
-          </div>
-        ) : data ? (
-          <>
-            {/* Top Sticky App Bar */}
-            <header className="sticky top-0 z-30 bg-[#F8F9FA]/95 dark:bg-[#0F172A]/95 backdrop-blur-sm border-b border-[#E5E7EB] dark:border-[#334155] px-4 py-3 flex items-center justify-between gap-2">
+    <div
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      className="min-h-screen w-full bg-[#F8F9FA] dark:bg-[#0F172A] text-[#111827] dark:text-[#F8FAFC]"
+    >
+      <div className="max-w-7xl mx-auto md:flex min-h-screen">
+        {/* Desktop & iPad Left Sidebar (240px fixed width, visible >= 768px) */}
+        <aside className="hidden md:flex md:flex-col md:w-[240px] shrink-0 sticky top-0 h-screen border-r border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] px-3.5 py-5 justify-between">
+          <div className="space-y-5">
+            {/* Brand Logo */}
+            <div className="flex items-center gap-2.5 px-1.5">
+              <div className="w-9 h-9 rounded-xl bg-[#059669] text-white flex items-center justify-center shadow-sm shrink-0">
+                <CheckSquare className="w-5 h-5" strokeWidth={2.2} />
+              </div>
               <div className="min-w-0">
-                <h1 className="text-base font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
-                  {tab === 'chores'
-                    ? 'Bảng việc nhà'
-                    : tab === 'history'
-                      ? historySubView === 'audit'
-                        ? 'Nhật ký Minh bạch'
-                        : 'Nhật ký hoạt động'
-                      : tab === 'stats'
-                        ? 'Thống kê & Xếp hạng'
-                        : tab === 'assign'
-                          ? 'Giao việc thành viên'
-                          : 'Quản trị hệ thống'}
-                </h1>
+                <p className="text-sm font-bold tracking-tight truncate">trackingwork</p>
                 <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] truncate">
-                  Xin chào, <span className="font-semibold text-[#059669]">{data.me.display_name}</span>
-                  {isDelegatedAssigner && (
-                    <span className="ml-1.5 text-[10px] font-semibold text-[#D97706]">
-                      • Người giao việc
-                    </span>
-                  )}
+                  Việc nhà minh bạch
                 </p>
               </div>
+            </div>
 
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    haptic(10);
-                    setTab('history');
-                    setHistorySubView('audit');
-                  }}
-                  aria-label="Mở nhật ký Minh bạch"
-                  title="Minh bạch (Audit Log)"
-                  className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
-                    tab === 'history' && historySubView === 'audit'
-                      ? 'border-[#059669] bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669]'
-                      : 'border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-[#6B7280] dark:text-[#CBD5E1]'
-                  }`}
-                >
-                  <Lock className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    haptic(10);
-                    setNotifOpen(true);
-                  }}
-                  aria-label="Thông báo"
-                  className="relative w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
-                >
-                  <Bell className="w-4 h-4" />
-                  {unreadNotifs > 0 && (
-                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#DC2626] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
-                      {unreadNotifs > 9 ? '9+' : unreadNotifs}
-                    </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    haptic(10);
-                    void mutate();
-                    void syncOfflineQueue();
-                  }}
-                  aria-label="Làm mới"
-                  className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isValidating ? 'animate-spin text-[#059669]' : ''}`} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDarkMode((d) => !d)}
-                  aria-label="Đổi giao diện sáng tối"
-                  className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
-                >
-                  {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  aria-label="Đăng xuất"
-                  className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
+            {/* Profile Badge */}
+            <div className="rounded-2xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] p-3 flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-full bg-[#059669]/15 text-[#059669] text-xs font-bold flex items-center justify-center shrink-0">
+                {getInitials(data.me.display_name)}
               </div>
-            </header>
+              <div className="min-w-0">
+                <p className="text-xs font-bold truncate">{data.me.display_name}</p>
+                <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] truncate">
+                  {isAdmin
+                    ? 'Quản trị viên'
+                    : isDelegatedAssigner
+                      ? 'Người giao việc'
+                      : 'Thành viên'}
+                </p>
+              </div>
+            </div>
 
-            {pullDist > 12 && (
-              <div
-                style={{ height: `${pullDist}px` }}
-                className="flex items-center justify-center text-xs font-medium text-[#059669] overflow-hidden"
+            {/* Live Weekly Fund Card in Sidebar */}
+            {data.weeklyFundConfig.enabled && (
+              <button
+                type="button"
+                onClick={() => setWalletOpen(true)}
+                className="w-full text-left rounded-2xl bg-[#ECFDF5]/60 dark:bg-[#064E3B]/30 border border-[#A7F3D0] dark:border-[#047857] p-3 space-y-0.5 hover:border-[#059669] transition"
               >
-                {pullDist >= 56 ? 'Thả tay để làm mới...' : 'Kéo xuống để làm mới'}
-              </div>
-            )}
-
-            <InstallBanner />
-
-            {(offlineCount > 0 || offlineNotice) && (
-              <div className="mx-4 mt-3 rounded-2xl bg-[#FFFBEB] dark:bg-[#451A03] border border-[#FDE68A] dark:border-[#92400E] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2 text-[#B45309] dark:text-[#FCD34D] font-medium">
-                  <WifiOff className="w-4 h-4 shrink-0" />
-                  <span>
-                    {offlineNotice || `Đang chờ mạng để đồng bộ ${offlineCount} ảnh xác thực`}
+                <div className="flex items-center justify-between text-[11px] font-semibold text-[#047857] dark:text-[#6EE7B7]">
+                  <span className="flex items-center gap-1">
+                    <Wallet className="w-3.5 h-3.5" />
+                    Ví quỹ tuần
                   </span>
                 </div>
-                {offlineCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => void syncOfflineQueue()}
-                    className="h-8 px-2.5 rounded-lg bg-[#D97706] text-white font-semibold shrink-0"
-                  >
-                    Đồng bộ
-                  </button>
+                <p className="text-sm font-bold text-[#065F46] dark:text-[#A7F3D0] tabular-nums">
+                  {data.me.current_balance.toLocaleString('vi-VN')}đ
+                </p>
+              </button>
+            )}
+
+            {/* Navigation Links */}
+            <nav aria-label="Điều hướng chính" className="space-y-1">
+              {(
+                [
+                  { key: 'chores', label: 'Việc nhà', icon: CheckSquare, show: true },
+                  { key: 'history', label: 'Lịch sử', icon: History, show: true },
+                  { key: 'audit', label: 'Minh bạch', icon: Lock, show: true },
+                  { key: 'stats', label: 'Thống kê', icon: BarChart3, show: showStatsTab },
+                  {
+                    key: 'assign',
+                    label: 'Giao việc',
+                    icon: ClipboardList,
+                    show: isDelegatedAssigner,
+                  },
+                  { key: 'admin', label: 'Quản trị (Admin)', icon: Shield, show: isAdmin },
+                ] as const
+              )
+                .filter((item) => item.show)
+                .map((item) => {
+                  const Icon = item.icon;
+                  const active = tab === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setTab(item.key)}
+                      className={`w-full h-11 px-3 rounded-xl text-sm font-semibold flex items-center gap-2.5 transition ${
+                        active
+                          ? 'bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399]'
+                          : 'text-[#6B7280] dark:text-[#94A3B8] hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A]'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+            </nav>
+          </div>
+
+          {/* Sidebar Bottom Actions */}
+          <div className="space-y-2 pt-3 border-t border-[#E5E7EB] dark:border-[#334155]">
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setNotifOpen(true)}
+                title="Thông báo"
+                className="relative h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1] hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A]"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadNotifs > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#DC2626] text-white text-[10px] font-bold flex items-center justify-center">
+                    {unreadNotifs > 9 ? '9+' : unreadNotifs}
+                  </span>
                 )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void mutate();
+                  void syncOfflineQueue();
+                }}
+                title="Làm mới"
+                className="h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1] hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A]"
+              >
+                <RefreshCw className={`w-4 h-4 ${isValidating ? 'animate-spin text-[#059669]' : ''}`} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDarkMode((d) => !d)}
+                title="Đổi giao diện Sáng/Tối"
+                className="h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1] hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A]"
+              >
+                {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#6B7280] dark:text-[#CBD5E1] hover:text-[#DC2626] flex items-center justify-center gap-1.5"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Đăng xuất
+            </button>
+          </div>
+        </aside>
+
+        {/* Main Content Area (Mobile Full-Width / Tablet & Desktop Remaining Space) */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* Mobile Compact Sticky Header (< 768px) */}
+          <header className="md:hidden sticky top-0 z-30 bg-[#F8F9FA]/95 dark:bg-[#0F172A]/95 backdrop-blur-sm border-b border-[#E5E7EB] dark:border-[#334155] px-4 py-3 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="text-base font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
+                {pageTitle}
+              </h1>
+              <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] truncate">
+                Xin chào,{' '}
+                <span className="font-semibold text-[#059669]">{data.me.display_name}</span>
+                {isDelegatedAssigner && (
+                  <span className="ml-1.5 text-[10px] font-semibold text-[#D97706]">
+                    • Người giao việc
+                  </span>
+                )}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  haptic(10);
+                  setTab('audit');
+                }}
+                aria-label="Mở nhật ký Minh bạch"
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+                  tab === 'audit'
+                    ? 'border-[#059669] bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669]'
+                    : 'border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-[#6B7280] dark:text-[#CBD5E1]'
+                }`}
+              >
+                <Lock className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  haptic(10);
+                  setNotifOpen(true);
+                }}
+                aria-label="Thông báo"
+                className="relative w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadNotifs > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#DC2626] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                    {unreadNotifs > 9 ? '9+' : unreadNotifs}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  haptic(10);
+                  void mutate();
+                  void syncOfflineQueue();
+                }}
+                aria-label="Làm mới"
+                className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
+              >
+                <RefreshCw className={`w-4 h-4 ${isValidating ? 'animate-spin text-[#059669]' : ''}`} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDarkMode((d) => !d)}
+                aria-label="Đổi giao diện sáng tối"
+                className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
+              >
+                {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                aria-label="Đăng xuất"
+                className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          </header>
+
+          {/* Desktop & iPad Top Title Strip (>= 768px) */}
+          <header className="hidden md:flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB] dark:border-[#334155] bg-white/60 dark:bg-[#0F172A]/80 backdrop-blur-sm sticky top-0 z-20">
+            <div>
+              <h1 className="text-xl font-bold tracking-tight">{pageTitle}</h1>
+              <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
+                Giờ máy chủ Việt Nam: {data.serverVnFormatted}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {isValidating && (
+                <span className="text-xs font-medium text-[#059669] flex items-center gap-1">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Đang đồng bộ...
+                </span>
+              )}
+            </div>
+          </header>
+
+          {pullDist > 12 && (
+            <div
+              style={{ height: `${pullDist}px` }}
+              className="md:hidden flex items-center justify-center text-xs font-medium text-[#059669] overflow-hidden"
+            >
+              {pullDist >= 56 ? 'Thả tay để làm mới...' : 'Kéo xuống để làm mới'}
+            </div>
+          )}
+
+          <InstallBanner />
+
+          {(offlineCount > 0 || offlineNotice) && (
+            <div className="mx-4 md:mx-6 mt-3 rounded-2xl bg-[#FFFBEB] dark:bg-[#451A03] border border-[#FDE68A] dark:border-[#92400E] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-[#B45309] dark:text-[#FCD34D] font-medium">
+                <WifiOff className="w-4 h-4 shrink-0" />
+                <span>
+                  {offlineNotice || `Đang chờ mạng để đồng bộ ${offlineCount} ảnh xác thực`}
+                </span>
+              </div>
+              {offlineCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void syncOfflineQueue()}
+                  className="h-8 px-2.5 rounded-lg bg-[#D97706] text-white font-semibold shrink-0"
+                >
+                  Đồng bộ
+                </button>
+              )}
+            </div>
+          )}
+
+          <main className="flex-1 px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
+            {tab === 'chores' && (
+              <ChoreBoard
+                me={data.me}
+                chores={data.chores}
+                activeSessions={data.activeSessions}
+                logs={data.logs}
+                assignedChores={data.assignedChores}
+                shiftSwaps={data.shiftSwaps}
+                fundTransactions={data.fundTransactions}
+                sharedPartyFund={data.sharedPartyFund}
+                featureFlags={data.featureFlags}
+                weeklyFundConfig={data.weeklyFundConfig}
+                serverNowIso={data.serverNowIso}
+                onStartCapture={(target) => setCaptureTarget(target)}
+                onInspectPhoto={(log) => setInspectingLog(log)}
+                onOpenWallet={() => setWalletOpen(true)}
+                onOpenSwapSheet={(a) => setSwapAssignment(a)}
+                onRefresh={refreshData}
+              />
+            )}
+
+            {tab === 'history' && (
+              <ActivityHistory
+                logs={data.logs}
+                logsNextCursor={data.logsNextCursor}
+                auditLogs={data.auditLogs}
+                auditNextCursor={data.auditNextCursor}
+                chores={data.chores}
+                members={data.members}
+                subView="feed"
+                onChangeSubView={(v) => setTab(v === 'audit' ? 'audit' : 'history')}
+                featureFlags={data.featureFlags}
+                isAdmin={isAdmin}
+                onInspectPhoto={(log) => setInspectingLog(log)}
+                onModerate={handleModerateLog}
+                onReact={handleReactLog}
+              />
+            )}
+
+            {tab === 'audit' && (
+              <div className="space-y-3.5">
+                <div className="md:hidden">
+                  <ActivityHistory
+                    logs={data.logs}
+                    logsNextCursor={data.logsNextCursor}
+                    auditLogs={data.auditLogs}
+                    auditNextCursor={data.auditNextCursor}
+                    chores={data.chores}
+                    members={data.members}
+                    subView="audit"
+                    onChangeSubView={(v) => setTab(v === 'audit' ? 'audit' : 'history')}
+                    featureFlags={data.featureFlags}
+                    isAdmin={isAdmin}
+                    onInspectPhoto={(log) => setInspectingLog(log)}
+                    onModerate={handleModerateLog}
+                    onReact={handleReactLog}
+                  />
+                </div>
+                <div className="hidden md:block">
+                  <AuditLogView
+                    initialItems={data.auditLogs}
+                    initialNextCursor={data.auditNextCursor}
+                  />
+                </div>
               </div>
             )}
 
-            <main className="flex-1 px-4 py-4 pb-24">
-              {tab === 'chores' && (
-                <ChoreBoard
-                  me={data.me}
-                  chores={data.chores}
-                  activeSessions={data.activeSessions}
-                  logs={data.logs}
-                  assignedChores={data.assignedChores}
-                  shiftSwaps={data.shiftSwaps}
-                  fundTransactions={data.fundTransactions}
-                  sharedPartyFund={data.sharedPartyFund}
-                  featureFlags={data.featureFlags}
-                  weeklyFundConfig={data.weeklyFundConfig}
-                  serverNowIso={data.serverNowIso}
-                  onStartCapture={(target) => setCaptureTarget(target)}
-                  onInspectPhoto={(log) => setInspectingLog(log)}
-                  onOpenWallet={() => setWalletOpen(true)}
-                  onOpenSwapSheet={(a) => setSwapAssignment(a)}
-                  onRefresh={refreshData}
-                />
-              )}
+            {tab === 'stats' && showStatsTab && (
+              <AnalyticsView
+                chores={data.chores}
+                logs={data.logs}
+                members={data.members}
+                penalties={data.penalties}
+                weeklySettlement={data.weeklySettlement}
+                sharedPartyFund={data.sharedPartyFund}
+                weeklyFundConfig={data.weeklyFundConfig}
+                featureFlags={data.featureFlags}
+                serverNowIso={data.serverNowIso}
+                isAdmin={isAdmin}
+                meId={data.me.id}
+                onRefresh={refreshData}
+              />
+            )}
 
-              {tab === 'history' && (
-                <ActivityHistory
-                  logs={data.logs}
-                  logsNextCursor={data.logsNextCursor}
-                  auditLogs={data.auditLogs}
-                  auditNextCursor={data.auditNextCursor}
-                  subView={historySubView}
-                  onChangeSubView={setHistorySubView}
-                  featureFlags={data.featureFlags}
-                  isAdmin={isAdmin}
-                  onInspectPhoto={(log) => setInspectingLog(log)}
-                  onModerate={handleModerateLog}
-                  onReact={handleReactLog}
-                />
-              )}
-
-              {tab === 'stats' && showStatsTab && (
-                <AnalyticsView
-                  chores={data.chores}
-                  logs={data.logs}
-                  members={data.members}
-                  penalties={data.penalties}
-                  weeklySettlement={data.weeklySettlement}
-                  sharedPartyFund={data.sharedPartyFund}
-                  weeklyFundConfig={data.weeklyFundConfig}
-                  featureFlags={data.featureFlags}
-                  serverNowIso={data.serverNowIso}
-                  isAdmin={isAdmin}
-                  meId={data.me.id}
-                  onRefresh={refreshData}
-                />
-              )}
-
-              {tab === 'assign' && isDelegatedAssigner && (
+            {tab === 'assign' && isDelegatedAssigner && (
+              <div className="max-w-3xl">
                 <AssignTasksPanel
                   chores={data.chores}
                   members={data.members}
@@ -561,157 +761,156 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   currentVnDate={data.currentVnDate}
                   onRefresh={refreshData}
                 />
-              )}
-
-              {tab === 'admin' && isAdmin && (
-                <AdminPanel
-                  chores={data.chores}
-                  logs={data.logs}
-                  members={data.members}
-                  assignedChores={data.assignedChores}
-                  fundTransactions={data.fundTransactions}
-                  weeklySettlement={data.weeklySettlement}
-                  sharedPartyFund={data.sharedPartyFund}
-                  featureFlags={data.featureFlags}
-                  weeklyFundConfig={data.weeklyFundConfig}
-                  retentionDays={data.retentionDays}
-                  lastCleanupAt={data.lastCleanupAt}
-                  currentVnDate={data.currentVnDate}
-                  onRefresh={refreshData}
-                  onModerate={handleModerateLog}
-                  onInspectPhoto={(log) => setInspectingLog(log)}
-                />
-              )}
-            </main>
-
-            <nav
-              aria-label="Điều hướng chính"
-              className="fixed bottom-0 w-full max-w-[430px] z-30 bg-white/95 dark:bg-[#1E293B]/95 backdrop-blur-sm border-t border-[#E5E7EB] dark:border-[#334155] px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
-            >
-              <div className="flex items-center justify-around gap-1">
-                <button
-                  type="button"
-                  onClick={() => setTab('chores')}
-                  className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
-                    tab === 'chores'
-                      ? 'text-[#059669]'
-                      : 'text-[#6B7280] dark:text-[#94A3B8]'
-                  }`}
-                >
-                  <CheckSquare className="w-5 h-5" strokeWidth={tab === 'chores' ? 2.25 : 1.75} />
-                  Việc nhà
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTab('history')}
-                  className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
-                    tab === 'history'
-                      ? 'text-[#059669]'
-                      : 'text-[#6B7280] dark:text-[#94A3B8]'
-                  }`}
-                >
-                  <History className="w-5 h-5" strokeWidth={tab === 'history' ? 2.25 : 1.75} />
-                  Lịch sử
-                </button>
-
-                {showStatsTab && (
-                  <button
-                    type="button"
-                    onClick={() => setTab('stats')}
-                    className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
-                      tab === 'stats'
-                        ? 'text-[#059669]'
-                        : 'text-[#6B7280] dark:text-[#94A3B8]'
-                    }`}
-                  >
-                    <BarChart3 className="w-5 h-5" strokeWidth={tab === 'stats' ? 2.25 : 1.75} />
-                    Thống kê
-                  </button>
-                )}
-
-                {isDelegatedAssigner && (
-                  <button
-                    type="button"
-                    onClick={() => setTab('assign')}
-                    className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
-                      tab === 'assign'
-                        ? 'text-[#059669]'
-                        : 'text-[#6B7280] dark:text-[#94A3B8]'
-                    }`}
-                  >
-                    <ClipboardList className="w-5 h-5" strokeWidth={tab === 'assign' ? 2.25 : 1.75} />
-                    Giao việc
-                  </button>
-                )}
-
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => setTab('admin')}
-                    className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
-                      tab === 'admin'
-                        ? 'text-[#059669]'
-                        : 'text-[#6B7280] dark:text-[#94A3B8]'
-                    }`}
-                  >
-                    <Shield className="w-5 h-5" strokeWidth={tab === 'admin' ? 2.25 : 1.75} />
-                    Admin
-                  </button>
-                )}
               </div>
-            </nav>
+            )}
 
-            <CameraCaptureSheet
-              target={captureTarget}
-              memberName={data.me.display_name}
-              onClose={() => setCaptureTarget(null)}
-              onCompleted={async (offlineSaved) => {
-                if (offlineSaved) {
-                  const q = await listOfflineProofs();
-                  setOfflineCount(q.length);
-                  setOfflineNotice('Mất mạng — Ảnh đã lưu tạm và sẽ tự động tải lên khi có kết nối!');
-                  setTimeout(() => setOfflineNotice(null), 5000);
-                } else {
-                  await mutate();
-                }
-              }}
-            />
-
-            <WeeklyWalletDrawer
-              open={walletOpen}
-              me={data.me}
-              transactions={data.fundTransactions}
-              onClose={() => setWalletOpen(false)}
-            />
-
-            <NotificationDrawer
-              open={notifOpen}
-              notifications={data.notifications}
-              notifPermission={notifPermission}
-              onRequestPermission={handleRequestNotifPermission}
-              onMarkAllRead={handleMarkAllRead}
-              onClose={() => setNotifOpen(false)}
-            />
-
-            <ShiftSwapSheet
-              assignment={swapAssignment}
-              members={data.members}
-              me={data.me}
-              onClose={() => setSwapAssignment(null)}
-              onCreated={refreshData}
-            />
-
-            <PhotoViewerModal
-              log={inspectingLog}
-              isAdmin={isAdmin}
-              onClose={() => setInspectingLog(null)}
-              onModerate={handleModerateLog}
-              onReact={handleReactLog}
-            />
-          </>
-        ) : null}
+            {tab === 'admin' && isAdmin && (
+              <AdminPanel
+                chores={data.chores}
+                logs={data.logs}
+                members={data.members}
+                assignedChores={data.assignedChores}
+                fundTransactions={data.fundTransactions}
+                weeklySettlement={data.weeklySettlement}
+                sharedPartyFund={data.sharedPartyFund}
+                featureFlags={data.featureFlags}
+                weeklyFundConfig={data.weeklyFundConfig}
+                retentionDays={data.retentionDays}
+                lastCleanupAt={data.lastCleanupAt}
+                currentVnDate={data.currentVnDate}
+                onRefresh={refreshData}
+                onModerate={handleModerateLog}
+                onInspectPhoto={(log) => setInspectingLog(log)}
+              />
+            )}
+          </main>
+        </div>
       </div>
+
+      {/* Mobile Fixed Bottom Tab Navigation (< 768px) */}
+      <nav
+        aria-label="Điều hướng di động"
+        className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 dark:bg-[#1E293B]/95 backdrop-blur-sm border-t border-[#E5E7EB] dark:border-[#334155] px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+      >
+        <div className="flex items-center justify-around gap-1">
+          <button
+            type="button"
+            onClick={() => setTab('chores')}
+            className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+              tab === 'chores' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
+            }`}
+          >
+            <CheckSquare className="w-5 h-5" strokeWidth={tab === 'chores' ? 2.25 : 1.75} />
+            Việc nhà
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab('history')}
+            className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+              tab === 'history' || tab === 'audit'
+                ? 'text-[#059669]'
+                : 'text-[#6B7280] dark:text-[#94A3B8]'
+            }`}
+          >
+            <History
+              className="w-5 h-5"
+              strokeWidth={tab === 'history' || tab === 'audit' ? 2.25 : 1.75}
+            />
+            Lịch sử
+          </button>
+
+          {showStatsTab && (
+            <button
+              type="button"
+              onClick={() => setTab('stats')}
+              className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+                tab === 'stats' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
+              }`}
+            >
+              <BarChart3 className="w-5 h-5" strokeWidth={tab === 'stats' ? 2.25 : 1.75} />
+              Thống kê
+            </button>
+          )}
+
+          {isDelegatedAssigner && (
+            <button
+              type="button"
+              onClick={() => setTab('assign')}
+              className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+                tab === 'assign' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
+              }`}
+            >
+              <ClipboardList className="w-5 h-5" strokeWidth={tab === 'assign' ? 2.25 : 1.75} />
+              Giao việc
+            </button>
+          )}
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setTab('admin')}
+              className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+                tab === 'admin' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
+              }`}
+            >
+              <Shield className="w-5 h-5" strokeWidth={tab === 'admin' ? 2.25 : 1.75} />
+              Admin
+            </button>
+          )}
+        </div>
+      </nav>
+
+      {/* Modals & Drawers */}
+      <CameraCaptureSheet
+        target={captureTarget}
+        memberName={data.me.display_name}
+        onClose={() => setCaptureTarget(null)}
+        onCompleted={async (offlineSaved) => {
+          if (offlineSaved) {
+            const q = await listOfflineProofs();
+            setOfflineCount(q.length);
+            setOfflineNotice('Mất mạng — Ảnh đã lưu tạm và sẽ tự động tải lên khi có kết nối!');
+            setTimeout(() => setOfflineNotice(null), 5000);
+          } else {
+            await mutate();
+          }
+        }}
+      />
+
+      <WeeklyWalletDrawer
+        open={walletOpen}
+        me={data.me}
+        transactions={data.fundTransactions}
+        onClose={() => setWalletOpen(false)}
+      />
+
+      <NotificationDrawer
+        open={notifOpen}
+        notifications={data.notifications}
+        notifPermission={notifPermission}
+        onRequestPermission={handleRequestNotifPermission}
+        onMarkAllRead={handleMarkAllRead}
+        onClose={() => setNotifOpen(false)}
+      />
+
+      <ShiftSwapSheet
+        assignment={swapAssignment}
+        members={data.members}
+        me={data.me}
+        onClose={() => setSwapAssignment(null)}
+        onCreated={refreshData}
+      />
+
+      <PhotoViewerModal
+        log={inspectingLog}
+        allLogs={data.logs}
+        onSelectLog={(nextLog) => setInspectingLog(nextLog)}
+        isAdmin={isAdmin}
+        onClose={() => setInspectingLog(null)}
+        onModerate={handleModerateLog}
+        onReact={handleReactLog}
+      />
     </div>
   );
 }

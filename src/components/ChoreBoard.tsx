@@ -124,7 +124,6 @@ export function ChoreBoard({
     [assignedChores, me.id],
   );
 
-  // Open shift swaps visible to me (not requested by me, targeted to me or open board)
   const openSwapsForMe = useMemo(
     () =>
       shiftSwaps.filter(
@@ -229,155 +228,189 @@ export function ChoreBoard({
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
+  const pendingPersonalCount = myAssignments.filter((a) => a.cycle_status === 'pending').length;
+
   return (
-    <div className="space-y-4">
-      {/* Shared Party Fund Banner ("Quỹ Liên Hoan Chung") */}
-      {sharedPartyFund.show_banner && (
-        <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-[#FFFBEB] dark:bg-[#451A03] text-[#D97706] flex items-center justify-center shrink-0">
-                <PartyPopper className="w-5 h-5" />
+    <div className="space-y-6">
+      {/* Top Adaptive Summary Bar (1 col Mobile, 2 cols iPad, 3 cols Desktop) */}
+      {(sharedPartyFund.show_banner || weeklyFundConfig.enabled || featureFlags.recurring_tasks) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 md:gap-4">
+          {weeklyFundConfig.enabled && (
+            <button
+              type="button"
+              onClick={() => {
+                haptic(10);
+                onOpenWallet();
+              }}
+              className="w-full text-left bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-2.5 active:scale-[0.99] transition hover:border-[#059669]/50"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] flex items-center justify-center shrink-0">
+                    <Wallet className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280] dark:text-[#94A3B8]">
+                      Ví quỹ tuần
+                    </p>
+                    <p className="text-base font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums truncate">
+                      {me.current_balance.toLocaleString('vi-VN')}đ
+                      <span className="text-xs font-medium text-[#6B7280] dark:text-[#94A3B8]">
+                        {' '}
+                        / {me.weekly_allowance.toLocaleString('vi-VN')}đ
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 text-xs font-semibold text-[#059669] dark:text-[#34D399] shrink-0">
+                  Lịch sử
+                  <ChevronRight className="w-4 h-4" />
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#B45309] dark:text-[#FCD34D]">
-                  Quỹ Liên Hoan Chung
-                </p>
-                <p className="text-base font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums">
-                  {sharedPartyFund.balance.toLocaleString('vi-VN')}đ
-                </p>
+
+              {me.weekly_allowance > 0 && (
+                <div className="h-1.5 w-full rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      me.current_balance <= 0
+                        ? 'bg-[#DC2626]'
+                        : balancePct < 50
+                          ? 'bg-[#D97706]'
+                          : 'bg-[#059669]'
+                    }`}
+                    style={{ width: `${balancePct}%` }}
+                  />
+                </div>
+              )}
+            </button>
+          )}
+
+          {sharedPartyFund.show_banner && (
+            <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-2 flex flex-col justify-between">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-[#FFFBEB] dark:bg-[#451A03] text-[#D97706] flex items-center justify-center shrink-0">
+                    <PartyPopper className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#B45309] dark:text-[#FCD34D]">
+                      Quỹ Liên Hoan Chung
+                    </p>
+                    <p className="text-base font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums">
+                      {sharedPartyFund.balance.toLocaleString('vi-VN')}đ
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] text-right">
+                  Góp từ phạt trễ
+                </span>
+              </div>
+              <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] truncate tabular-nums">
+                {latestPenaltyContributions.length > 0
+                  ? `Gần đây: ${latestPenaltyContributions
+                      .map((p) => `${p.member_name} (${Math.abs(p.amount).toLocaleString('vi-VN')}đ)`)
+                      .join(' • ')}`
+                  : 'Cả nhà làm đúng hạn — chưa có khoản phạt nào'}
+              </p>
+            </div>
+          )}
+
+          {featureFlags.recurring_tasks && recurringSummary.total > 0 && (
+            <div className="md:col-span-2 xl:col-span-1 bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-2.5 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold text-[#6B7280] dark:text-[#94A3B8] uppercase tracking-wide">
+                    Tiến độ định kỳ & Cá nhân
+                  </p>
+                  <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums mt-0.5">
+                    {recurringSummary.done}/{recurringSummary.total} việc chung • {pendingPersonalCount} việc riêng chờ
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] tabular-nums">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {Math.round((recurringSummary.done / recurringSummary.total) * 100)}%
+                </span>
+              </div>
+
+              <div className="h-1.5 w-full rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] overflow-hidden">
+                <div
+                  className="h-full bg-[#059669] rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.round((recurringSummary.done / recurringSummary.total) * 100)}%`,
+                  }}
+                />
               </div>
             </div>
-            <span className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] text-right">
-              Góp từ các khoản phạt trễ
-            </span>
-          </div>
-          {latestPenaltyContributions.length > 0 && (
-            <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] truncate tabular-nums">
-              Gần đây:{' '}
-              {latestPenaltyContributions
-                .map((p) => `${p.member_name} (${Math.abs(p.amount).toLocaleString('vi-VN')}đ)`)
-                .join(' • ')}
-            </p>
           )}
         </div>
       )}
 
-      {/* Compact Weekly Fund Wallet Card */}
-      {weeklyFundConfig.enabled && (
-        <button
-          type="button"
-          onClick={() => {
-            haptic(10);
-            onOpenWallet();
-          }}
-          className="w-full text-left bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-2 active:scale-[0.99] transition"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] flex items-center justify-center shrink-0">
-                <Wallet className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280] dark:text-[#94A3B8]">
-                  Ví quỹ tuần
-                </p>
-                <p className="text-base font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums truncate">
-                  {me.current_balance.toLocaleString('vi-VN')}đ
-                  <span className="text-xs font-medium text-[#6B7280] dark:text-[#94A3B8]">
-                    {' '}
-                    / {me.weekly_allowance.toLocaleString('vi-VN')}đ
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 text-xs font-semibold text-[#059669] dark:text-[#34D399] shrink-0">
-              Lịch sử
-              <ChevronRight className="w-4 h-4" />
-            </div>
-          </div>
-
-          {me.weekly_allowance > 0 && (
-            <div className="h-1.5 w-full rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  me.current_balance <= 0
-                    ? 'bg-[#DC2626]'
-                    : balancePct < 50
-                      ? 'bg-[#D97706]'
-                      : 'bg-[#059669]'
-                }`}
-                style={{ width: `${balancePct}%` }}
-              />
-            </div>
-          )}
-        </button>
-      )}
-
       {/* Open Shift Swaps & Bounty Requests */}
       {openSwapsForMe.length > 0 && (
-        <section className="space-y-2">
+        <section className="space-y-2.5">
           <h2 className="text-xs font-bold uppercase tracking-wider text-[#D97706] px-0.5 flex items-center gap-1.5">
             <HandHelping className="w-3.5 h-3.5" />
             Kèo nhờ làm hộ ({openSwapsForMe.length})
           </h2>
-          {openSwapsForMe.map((sw) => (
-            <div
-              key={sw.id}
-              className="bg-[#FFFBEB] dark:bg-[#451A03]/40 border border-[#FDE68A] dark:border-[#92400E] rounded-2xl p-3.5 flex items-center justify-between gap-2.5"
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
-                  {sw.chore_title} •{' '}
-                  <span className="text-[#B45309] dark:text-[#FCD34D]">
-                    {sw.requester_name} nhờ
-                  </span>
-                </p>
-                <p className="text-xs text-[#6B7280] dark:text-[#CBD5E1] tabular-nums">
-                  Hạn {sw.due_time}
-                  {sw.bounty_amount > 0 && (
-                    <span className="font-bold text-[#059669] dark:text-[#34D399]">
-                      {' '}
-                      • Thưởng +{sw.bounty_amount.toLocaleString('vi-VN')}đ
-                    </span>
-                  )}
-                </p>
-                {sw.note && <p className="text-[11px] text-[#6B7280] italic mt-0.5">{sw.note}</p>}
-              </div>
-
-              <button
-                type="button"
-                disabled={busySwapId === sw.id}
-                onClick={() => respondSwap(sw.id, 'accept')}
-                className="h-11 px-3.5 rounded-xl bg-[#059669] text-white text-xs font-bold shrink-0"
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+            {openSwapsForMe.map((sw) => (
+              <div
+                key={sw.id}
+                className="bg-[#FFFBEB] dark:bg-[#451A03]/40 border border-[#FDE68A] dark:border-[#92400E] rounded-2xl p-3.5 flex items-center justify-between gap-2.5"
               >
-                {busySwapId === sw.id ? 'Đang nhận...' : 'Nhận ca'}
-              </button>
-            </div>
-          ))}
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
+                    {sw.chore_title} •{' '}
+                    <span className="text-[#B45309] dark:text-[#FCD34D]">
+                      {sw.requester_name} nhờ
+                    </span>
+                  </p>
+                  <p className="text-xs text-[#6B7280] dark:text-[#CBD5E1] tabular-nums">
+                    Hạn {sw.due_time}
+                    {sw.bounty_amount > 0 && (
+                      <span className="font-bold text-[#059669] dark:text-[#34D399]">
+                        {' '}
+                        • Thưởng +{sw.bounty_amount.toLocaleString('vi-VN')}đ
+                      </span>
+                    )}
+                  </p>
+                  {sw.note && <p className="text-[11px] text-[#6B7280] italic mt-0.5">{sw.note}</p>}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={busySwapId === sw.id}
+                  onClick={() => respondSwap(sw.id, 'accept')}
+                  className="h-11 px-3.5 rounded-xl bg-[#059669] text-white text-xs font-bold shrink-0"
+                >
+                  {busySwapId === sw.id ? 'Đang nhận...' : 'Nhận ca'}
+                </button>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 
-      {/* Section 1: My Assigned Chores */}
-      <section className="space-y-2.5">
+      {/* Section 1: My Assigned Chores (Multi-Column Grid on Tablet & PC) */}
+      <section className="space-y-3">
         <div className="flex items-center justify-between px-0.5">
           <h2 className="text-xs font-bold uppercase tracking-wider text-[#111827] dark:text-[#F8FAFC]">
             Việc được giao cho bạn ({myAssignments.length})
           </h2>
-          {myAssignments.some((a) => a.cycle_status === 'pending') && (
+          {pendingPersonalCount > 0 && (
             <span className="text-[11px] font-semibold text-[#D97706] tabular-nums">
-              {myAssignments.filter((a) => a.cycle_status === 'pending').length} việc cần làm
+              {pendingPersonalCount} việc cần làm
             </span>
           )}
         </div>
 
         {myAssignments.length === 0 ? (
-          <div className="bg-white dark:bg-[#1E293B] border border-dashed border-[#D1D5DB] dark:border-[#334155] rounded-2xl px-4 py-3.5 text-xs text-[#6B7280] dark:text-[#94A3B8]">
+          <div className="bg-white dark:bg-[#1E293B] border border-dashed border-[#D1D5DB] dark:border-[#334155] rounded-2xl px-4 py-4 text-xs text-[#6B7280] dark:text-[#94A3B8]">
             Hiện chưa có việc riêng nào được phân công trực tiếp cho bạn.
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 xl:gap-5">
             {myAssignments.map((a) => {
               const linkedChore = choreById.get(a.chore_id);
               const isDone = a.cycle_status === 'completed';
@@ -394,7 +427,7 @@ export function ChoreBoard({
               return (
                 <div
                   key={a.id}
-                  className={`bg-white dark:bg-[#1E293B] rounded-2xl p-4 space-y-3 border ${
+                  className={`bg-white dark:bg-[#1E293B] rounded-2xl p-4 space-y-3 border flex flex-col justify-between ${
                     isMissed
                       ? 'border-[#FCA5A5] dark:border-[#991B1B]'
                       : isDone
@@ -566,41 +599,15 @@ export function ChoreBoard({
         )}
       </section>
 
-      {/* Section 2: General / Free-for-All Chores */}
+      {/* Section 2: General / Free-for-All Chores (Multi-Column Grid on Tablet & PC) */}
       <section className="space-y-3 pt-1">
-        <div className="flex items-center justify-between px-0.5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-0.5">
           <h2 className="text-xs font-bold uppercase tracking-wider text-[#6B7280] dark:text-[#94A3B8]">
             Việc chung ({filteredChores.length})
           </h2>
-        </div>
 
-        {featureFlags.recurring_tasks && recurringSummary.total > 0 && (
-          <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-[#6B7280] dark:text-[#94A3B8] uppercase tracking-wide">
-                  Tiến độ việc chung định kỳ
-                </p>
-                <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums mt-0.5">
-                  Đã xong {recurringSummary.done}/{recurringSummary.total} việc định kỳ
-                </p>
-              </div>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] tabular-nums">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                {Math.round((recurringSummary.done / recurringSummary.total) * 100)}%
-              </span>
-            </div>
-
-            <div className="h-1.5 w-full rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] overflow-hidden">
-              <div
-                className="h-full bg-[#059669] rounded-full transition-all duration-300"
-                style={{
-                  width: `${Math.round((recurringSummary.done / recurringSummary.total) * 100)}%`,
-                }}
-              />
-            </div>
-
-            <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
+          {featureFlags.recurring_tasks && (
+            <div className="flex items-center gap-1.5 overflow-x-auto">
               {(
                 [
                   { key: 'all', label: 'Tất cả' },
@@ -616,15 +623,15 @@ export function ChoreBoard({
                   className={`h-8 px-3 rounded-lg text-xs font-medium whitespace-nowrap transition ${
                     filter === chip.key
                       ? 'bg-[#111827] dark:bg-[#F8FAFC] text-white dark:text-[#0F172A]'
-                      : 'bg-[#F3F4F6] dark:bg-[#0F172A] text-[#6B7280] dark:text-[#94A3B8]'
+                      : 'bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] text-[#6B7280] dark:text-[#94A3B8]'
                   }`}
                 >
                   {chip.label}
                 </button>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {filteredChores.length === 0 ? (
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-8 text-center">
@@ -637,7 +644,7 @@ export function ChoreBoard({
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 xl:gap-5">
             {filteredChores.map((chore) => {
               const latest = latestLogByChore.get(chore.id);
               const cooldownMs = Math.max(0, chore.cooldown_minutes) * 60_000;
@@ -652,7 +659,7 @@ export function ChoreBoard({
               return (
                 <div
                   key={chore.id}
-                  className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3"
+                  className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3 flex flex-col justify-between"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">

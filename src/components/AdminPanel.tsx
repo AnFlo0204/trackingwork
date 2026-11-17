@@ -465,10 +465,12 @@ export function AdminPanel({
     }
   }
 
+  const [desktopRightSection, setDesktopRightSection] = useState<'members' | 'chores' | 'assign' | 'data'>('members');
+
   return (
     <div className="space-y-3.5">
-      {/* Admin Sub-Navigation */}
-      <div className="grid grid-cols-5 gap-1 bg-[#F3F4F6] dark:bg-[#1E293B] p-1 rounded-2xl border border-[#E5E7EB] dark:border-[#334155]">
+      {/* Mobile Sub-Navigation (< 768px) */}
+      <div className="md:hidden grid grid-cols-5 gap-1 bg-[#F3F4F6] dark:bg-[#1E293B] p-1 rounded-2xl border border-[#E5E7EB] dark:border-[#334155]">
         {(
           [
             { key: 'flags', label: 'Tính năng', icon: Sliders },
@@ -513,9 +515,10 @@ export function AdminPanel({
         </div>
       )}
 
-      {/* 1. Feature Flags + Weekly Fund & Party Fund Toggles */}
-      {section === 'flags' && (
-        <div className="space-y-3">
+      {/* 2-Column Adaptive Dashboard Grid on iPad/PC */}
+      <div className="md:grid md:grid-cols-12 md:gap-5 md:items-start">
+        {/* Left Column on iPad/PC: Feature Flags & Global Weekly Fund Config */}
+        <div className={`${section === 'flags' ? 'block' : 'hidden md:block'} md:col-span-5 space-y-3`}>
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -661,10 +664,48 @@ export function AdminPanel({
             })}
           </div>
         </div>
-      )}
+
+        {/* Right Column on iPad/PC: Members, Chores, Assign & Settlement */}
+        <div className={`${section === 'flags' ? 'hidden md:block' : 'block'} md:col-span-7 space-y-3`}>
+          {/* Desktop / iPad Segmented Switcher for Right Column */}
+          <div className="hidden md:grid grid-cols-4 gap-1.5 bg-[#F3F4F6] dark:bg-[#1E293B] p-1 rounded-2xl border border-[#E5E7EB] dark:border-[#334155]">
+            {(
+              [
+                { key: 'members', label: 'Nhân sự (10)', icon: Users },
+                { key: 'chores', label: 'Việc nhà', icon: Shield },
+                { key: 'assign', label: 'Giao việc', icon: ClipboardList },
+                { key: 'data', label: 'Quỹ & Duyệt', icon: Database, badge: flaggedLogs.length },
+              ] as const
+            ).map((tab) => {
+              const Icon = tab.icon;
+              const active = desktopRightSection === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    setDesktopRightSection(tab.key);
+                    setSection(tab.key);
+                  }}
+                  className={`relative h-10 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                    active
+                      ? 'bg-white dark:bg-[#0F172A] text-[#059669] shadow-sm'
+                      : 'text-[#6B7280] dark:text-[#94A3B8]'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {tab.label}
+                  {'badge' in tab && tab.badge && tab.badge > 0 ? (
+                    <span className="w-2 h-2 rounded-full bg-[#DC2626]" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
 
       {/* 2. Delegated / Admin Task Assignment */}
-      {section === 'assign' && (
+      {(section === 'assign' || (section === 'flags' && desktopRightSection === 'assign')) && (
+        <div className={section === 'assign' ? 'block' : 'hidden md:block'}>
         <AssignTasksPanel
           chores={chores}
           members={members}
@@ -672,11 +713,12 @@ export function AdminPanel({
           currentVnDate={currentVnDate}
           onRefresh={onRefresh}
         />
+        </div>
       )}
 
       {/* 3. Chore, Before/After & Min Duration Management */}
-      {section === 'chores' && (
-        <div className="space-y-3">
+      {(section === 'chores' || (section === 'flags' && desktopRightSection === 'chores')) && (
+        <div className={`${section === 'chores' ? 'block' : 'hidden md:block'} space-y-3`}>
           <form
             onSubmit={handleSaveChore}
             className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3"
@@ -884,8 +926,8 @@ export function AdminPanel({
       )}
 
       {/* 4. 10-Slot Member Roster */}
-      {section === 'members' && (
-        <div className="space-y-3">
+      {(section === 'members' || (section === 'flags' && desktopRightSection === 'members')) && (
+        <div className={`${section === 'members' ? 'block' : 'hidden md:block'} space-y-3`}>
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
@@ -1095,8 +1137,8 @@ export function AdminPanel({
       )}
 
       {/* 5. Weekly Settlement, Party Fund, Adjustments, Retention & Quality Moderation */}
-      {section === 'data' && (
-        <div className="space-y-3">
+      {(section === 'data' || (section === 'flags' && desktopRightSection === 'data')) && (
+        <div className={`${section === 'data' ? 'block' : 'hidden md:block'} space-y-3`}>
           {/* Highlighted Flagged ("Làm ẩu") Moderation Queue */}
           {flaggedLogs.length > 0 && (
             <div className="bg-[#FFFBEB] dark:bg-[#451A03]/40 border border-[#F59E0B] dark:border-[#D97706] rounded-2xl p-4 space-y-2.5">
@@ -1414,6 +1456,8 @@ export function AdminPanel({
           </div>
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }

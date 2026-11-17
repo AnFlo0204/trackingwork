@@ -46,18 +46,18 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
   }
 
   return (
-    <div className="min-h-screen flex flex-col justify-between px-5 py-6 bg-[#F8F9FA] dark:bg-[#0F172A]">
-      <div className="flex items-center justify-between">
+    <div className="min-h-screen w-full flex flex-col justify-between px-5 py-6 md:px-10 md:py-8 bg-[#F8F9FA] dark:bg-[#0F172A]">
+      <div className="max-w-5xl w-full mx-auto flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-[#059669] text-white flex items-center justify-center shadow-sm">
             <CheckSquare className="w-5 h-5" strokeWidth={2} />
           </div>
           <div>
             <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] leading-tight">
-              Việc Nhà
+              trackingwork
             </p>
             <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8]">
-              Sổ tay phân công & xác thực
+              Quản lý việc nhà & xác thực minh bạch
             </p>
           </div>
         </div>
@@ -72,9 +72,9 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
         </button>
       </div>
 
-      <div className="my-auto py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-[#111827] dark:text-[#F8FAFC]">
+      <div className="my-auto py-8 w-full max-w-md mx-auto">
+        <div className="mb-6 md:text-center">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-[#111827] dark:text-[#F8FAFC]">
             Đăng nhập
           </h1>
           <p className="mt-1.5 text-sm text-[#6B7280] dark:text-[#94A3B8]">
@@ -84,7 +84,7 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
 
         <form
           onSubmit={handleSubmit}
-          className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-5 space-y-4 shadow-sm"
+          className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-5 md:p-6 space-y-4 shadow-sm"
         >
           <div>
             <label
@@ -154,7 +154,7 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
       </div>
 
       <p className="text-center text-xs text-[#6B7280] dark:text-[#94A3B8]">
-        Đồng bộ thời gian thực • Chụp ảnh trực tiếp chống gian lận
+        Tối ưu cho Điện thoại, iPad & Laptop • Chụp ảnh trực tiếp chống gian lận
       </p>
     </div>
   );

@@ -132,8 +132,7 @@ export function AuditLogView({ initialItems, initialNextCursor }: AuditLogViewPr
   }
 
   return (
-    <div className="space-y-3">
-      {/* Hard Immutability Notice Badge */}
+    <div className="space-y-3.5">
       <div className="rounded-2xl bg-[#ECFDF5] dark:bg-[#064E3B]/50 border border-[#A7F3D0] dark:border-[#047857] p-3.5 flex items-start gap-2.5">
         <Lock className="w-4 h-4 text-[#059669] dark:text-[#34D399] shrink-0 mt-0.5" />
         <p className="text-xs font-semibold text-[#065F46] dark:text-[#A7F3D0] leading-relaxed">
@@ -141,33 +140,34 @@ export function AuditLogView({ initialItems, initialNextCursor }: AuditLogViewPr
         </p>
       </div>
 
-      {/* Search & Filter */}
-      <div className="relative">
-        <Search className="w-4 h-4 text-[#6B7280] dark:text-[#94A3B8] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Tìm theo người thao tác hoặc nội dung..."
-          className="w-full h-11 pl-10 pr-4 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm"
-        />
-      </div>
+      <div className="flex flex-col md:flex-row md:items-center gap-2.5">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-[#6B7280] dark:text-[#94A3B8] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Tìm theo người thao tác hoặc nội dung..."
+            className="w-full h-11 pl-10 pr-4 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm"
+          />
+        </div>
 
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-        {ACTION_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            onClick={() => setGroup(f.key)}
-            className={`h-8 px-3 rounded-lg text-xs font-medium whitespace-nowrap transition ${
-              group === f.key
-                ? 'bg-[#111827] dark:bg-[#F8FAFC] text-white dark:text-[#0F172A]'
-                : 'bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] text-[#6B7280] dark:text-[#94A3B8]'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          {ACTION_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setGroup(f.key)}
+              className={`h-9 px-3 rounded-lg text-xs font-medium whitespace-nowrap transition ${
+                group === f.key
+                  ? 'bg-[#111827] dark:bg-[#F8FAFC] text-white dark:text-[#0F172A]'
+                  : 'bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] text-[#6B7280] dark:text-[#94A3B8]'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -181,38 +181,40 @@ export function AuditLogView({ initialItems, initialNextCursor }: AuditLogViewPr
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((item) => {
-            const badge = formatActionBadge(item.action_type);
-            return (
-              <div
-                key={item.id}
-                className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-1.5"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${badge.tone}`}>
-                    {badge.label}
-                  </span>
-                  <span className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
-                    {formatIsoToVn(item.created_at)}
-                  </span>
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {filtered.map((item) => {
+              const badge = formatActionBadge(item.action_type);
+              return (
+                <div
+                  key={item.id}
+                  className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${badge.tone}`}>
+                      {badge.label}
+                    </span>
+                    <span className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
+                      {formatIsoToVn(item.created_at)}
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold text-[#111827] dark:text-[#F8FAFC]">
+                    Người thực hiện: <span className="text-[#059669]">{item.actor_name}</span>
+                  </p>
+                  <p className="text-xs text-[#374151] dark:text-[#CBD5E1] leading-relaxed">
+                    {item.target_summary}
+                  </p>
                 </div>
-                <p className="text-xs font-bold text-[#111827] dark:text-[#F8FAFC]">
-                  Người thực hiện: <span className="text-[#059669]">{item.actor_name}</span>
-                </p>
-                <p className="text-xs text-[#374151] dark:text-[#CBD5E1] leading-relaxed">
-                  {item.target_summary}
-                </p>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
 
           {nextCursor && (
             <button
               type="button"
               disabled={loadingMore}
               onClick={loadMore}
-              className="w-full h-11 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-xs font-semibold text-[#111827] dark:text-[#F8FAFC]"
+              className="w-full md:w-auto md:px-6 h-11 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-xs font-semibold text-[#111827] dark:text-[#F8FAFC]"
             >
               {loadingMore ? 'Đang tải thêm...' : 'Tải thêm nhật ký minh bạch (20 mục)'}
             </button>

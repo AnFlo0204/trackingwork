@@ -66,9 +66,9 @@ export function ShiftSwapSheet({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-[2px]">
-      <div className="w-full max-w-[430px] bg-white dark:bg-[#1E293B] border-t border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl p-5 pb-7 shadow-2xl space-y-4">
-        <div className="w-10 h-1 rounded-full bg-[#D1D5DB] dark:bg-[#475569] mx-auto -mt-1" />
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4 bg-black/50 backdrop-blur-[2px]">
+      <div className="w-full max-w-lg bg-white dark:bg-[#1E293B] border-t md:border border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl md:rounded-2xl p-5 pb-7 md:pb-5 shadow-2xl space-y-4">
+        <div className="w-10 h-1 rounded-full bg-[#D1D5DB] dark:bg-[#475569] mx-auto -mt-1 md:hidden" />
 
         <div className="flex items-start justify-between gap-3">
           <div>

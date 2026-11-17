@@ -206,7 +206,7 @@ export function AnalyticsView({
   const nonAdminMembers = members.filter((m) => m.role === 'member');
 
   return (
-    <div className="space-y-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
       {/* Weekly Settlement Report (Bảng quyết toán cuối tuần) */}
       {weeklyFundConfig.enabled && (
         <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">

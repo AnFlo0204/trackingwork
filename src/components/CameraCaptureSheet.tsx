@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Camera, Check, RefreshCw, ShieldCheck, Video, WifiOff, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { Camera, Check, Laptop, RefreshCw, ShieldCheck, Video, WifiOff, X } from 'lucide-react';
 import type { AssignedChoreItem, Chore } from '@/lib/types';
 import { enqueueOfflineProof, haptic } from '@/lib/offlineQueue';
 import { createWatermarkedProof, type WatermarkedPhotoResult } from '@/lib/watermarker';
@@ -20,6 +20,16 @@ interface CameraCaptureSheetProps {
   onCompleted: (offlineSaved?: boolean) => Promise<void>;
 }
 
+function detectDesktopDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const ua = window.navigator.userAgent || '';
+  const isMobileUa = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  const isTouchIpad = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  if (isMobileUa || isTouchIpad) return false;
+  const finePointer = window.matchMedia?.('(pointer: fine)').matches;
+  return Boolean(finePointer || window.innerWidth >= 1024);
+}
+
 export function CameraCaptureSheet({
   target,
   memberName,
@@ -30,6 +40,7 @@ export function CameraCaptureSheet({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
+  const [isDesktop, setIsDesktop] = useState(false);
   const [mode, setMode] = useState<'idle' | 'webrtc' | 'processing' | 'preview'>('idle');
   const [watermarked, setWatermarked] = useState<WatermarkedPhotoResult | null>(null);
   const [uploadToken, setUploadToken] = useState<string | null>(null);
@@ -42,14 +53,52 @@ export function CameraCaptureSheet({
   const phase = target?.phase ?? 'single';
   const sessionId = target?.sessionId ?? null;
 
-  function stopStream() {
+  const stopStream = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-  }
+  }, []);
+
+  const startLiveCamera = useCallback(
+    async (desktopMode: boolean) => {
+      setError(null);
+      if (!navigator.mediaDevices?.getUserMedia) {
+        if (desktopMode) {
+          setError('Trình duyệt máy tính không hỗ trợ truy cập Webcam trực tiếp (getUserMedia).');
+        } else {
+          fileInputRef.current?.click();
+        }
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: desktopMode
+            ? { width: { ideal: 1280 }, height: { ideal: 720 } }
+            : {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1280 },
+                height: { ideal: 960 },
+              },
+          audio: false,
+        });
+        streamRef.current = stream;
+        setMode('webrtc');
+      } catch {
+        setError(
+          desktopMode
+            ? 'Không thể mở Webcam trên máy tính. Vui lòng cấp quyền Camera cho trình duyệt (không cho phép tải tệp từ ổ cứng).'
+            : 'Không thể truy cập ống kính trực tiếp. Hãy dùng nút "Mở Camera sau chụp ảnh".',
+        );
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
+    const desktop = detectDesktopDevice();
+    setIsDesktop(desktop);
     setMode('idle');
     setError(null);
     setSubmitting(false);
@@ -59,6 +108,11 @@ export function CameraCaptureSheet({
     }
     setWatermarked(null);
     stopStream();
+
+    // On Laptop / Desktop PC, automatically open the Live Webcam Modal instead of file picker
+    if (chore && desktop) {
+      void startLiveCamera(true);
+    }
 
     return () => {
       stopStream();
@@ -143,30 +197,6 @@ export function CameraCaptureSheet({
     }
 
     void processCapturedBlob(file);
-  }
-
-  async function startLiveCamera() {
-    setError(null);
-    haptic(15);
-    if (!navigator.mediaDevices?.getUserMedia) {
-      fileInputRef.current?.click();
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 960 },
-        },
-        audio: false,
-      });
-      streamRef.current = stream;
-      setMode('webrtc');
-    } catch {
-      setError('Không thể truy cập ống kính trực tiếp. Hãy dùng nút "Mở Camera sau chụp ảnh".');
-    }
   }
 
   async function snapWebRtcFrame() {
@@ -296,12 +326,14 @@ export function CameraCaptureSheet({
         ? 'Bước 2/2 • Chụp ảnh SAU khi làm'
         : assigned
           ? 'Xác thực việc được giao'
-          : 'Xác thực Camera trực tiếp';
+          : isDesktop
+            ? 'Live Webcam chống gian lận'
+            : 'Xác thực Camera trực tiếp';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-[2px]">
-      <div className="w-full max-w-[430px] bg-white dark:bg-[#1E293B] border-t border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl p-5 pb-7 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
-        <div className="w-10 h-1 rounded-full bg-[#D1D5DB] dark:bg-[#475569] mx-auto -mt-1" />
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4 bg-black/50 backdrop-blur-[2px]">
+      <div className="w-full max-w-lg bg-white dark:bg-[#1E293B] border-t md:border border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl md:rounded-2xl p-5 pb-7 md:pb-5 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+        <div className="w-10 h-1 rounded-full bg-[#D1D5DB] dark:bg-[#475569] mx-auto -mt-1 md:hidden" />
         <div className="flex items-start justify-between gap-3">
           <div>
             <div
@@ -309,16 +341,18 @@ export function CameraCaptureSheet({
                 phase === 'before' ? 'text-[#D97706]' : 'text-[#059669]'
               }`}
             >
-              <ShieldCheck className="w-3.5 h-3.5" />
+              {isDesktop ? <Laptop className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
               {badgeTitle}
             </div>
             <h2 className="text-lg font-bold text-[#111827] dark:text-[#F8FAFC] mt-0.5">
               {chore.title}
             </h2>
             <p className="text-xs text-[#6B7280] dark:text-[#94A3B8]">
-              {phase === 'before'
-                ? 'Chụp hiện trạng ban đầu để mở đồng hồ đếm thời gian làm việc.'
-                : 'Ảnh được đóng dấu giờ máy chủ Việt Nam (UTC+7) • Token bảo mật 2 phút.'}
+              {isDesktop
+                ? 'Chế độ máy tính bắt buộc chụp trực tiếp qua Webcam — khóa chọn tệp từ ổ cứng.'
+                : phase === 'before'
+                  ? 'Chụp hiện trạng ban đầu để mở đồng hồ đếm thời gian làm việc.'
+                  : 'Ảnh được đóng dấu giờ máy chủ Việt Nam (UTC+7) • Token bảo mật 2 phút.'}
             </p>
           </div>
           <button
@@ -331,14 +365,17 @@ export function CameraCaptureSheet({
           </button>
         </div>
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={handleNativeFileChange}
-          className="hidden"
-        />
+        {/* File input strictly limited to mobile devices where capture="environment" opens native camera */}
+        {!isDesktop && (
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleNativeFileChange}
+            className="hidden"
+          />
+        )}
 
         {error && (
           <div className="rounded-xl bg-[#FEF2F2] dark:bg-[#450A0A] border border-[#FECACA] dark:border-[#7F1D1D] px-3.5 py-2.5 text-xs text-[#B91C1C] dark:text-[#FCA5A5]">
@@ -348,30 +385,49 @@ export function CameraCaptureSheet({
 
         {mode === 'idle' && (
           <div className="space-y-3 pt-1">
-            <button
-              type="button"
-              onClick={() => {
-                haptic(15);
-                fileInputRef.current?.click();
-              }}
-              className={`w-full h-14 rounded-2xl text-white font-semibold text-base flex items-center justify-center gap-2.5 active:scale-[0.99] transition ${
-                phase === 'before'
-                  ? 'bg-[#D97706] hover:bg-[#B45309]'
-                  : 'bg-[#059669] hover:bg-[#047857]'
-              }`}
-            >
-              <Camera className="w-5 h-5" />
-              Mở Camera sau chụp ảnh
-            </button>
+            {!isDesktop ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic(15);
+                    fileInputRef.current?.click();
+                  }}
+                  className={`w-full h-14 rounded-2xl text-white font-semibold text-base flex items-center justify-center gap-2.5 active:scale-[0.99] transition ${
+                    phase === 'before'
+                      ? 'bg-[#D97706] hover:bg-[#B45309]'
+                      : 'bg-[#059669] hover:bg-[#047857]'
+                  }`}
+                >
+                  <Camera className="w-5 h-5" />
+                  Mở Camera sau chụp ảnh
+                </button>
 
-            <button
-              type="button"
-              onClick={startLiveCamera}
-              className="w-full h-12 rounded-2xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-[#111827] dark:text-[#F8FAFC] font-medium text-sm flex items-center justify-center gap-2 active:scale-[0.99] transition"
-            >
-              <Video className="w-4 h-4 text-[#6B7280] dark:text-[#94A3B8]" />
-              Chụp trực tiếp trong ứng dụng
-            </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    haptic(15);
+                    void startLiveCamera(false);
+                  }}
+                  className="w-full h-12 rounded-2xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-[#111827] dark:text-[#F8FAFC] font-medium text-sm flex items-center justify-center gap-2 active:scale-[0.99] transition"
+                >
+                  <Video className="w-4 h-4 text-[#6B7280] dark:text-[#94A3B8]" />
+                  Chụp trực tiếp trong ứng dụng
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  haptic(15);
+                  void startLiveCamera(true);
+                }}
+                className="w-full h-14 rounded-2xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-base flex items-center justify-center gap-2.5"
+              >
+                <Video className="w-5 h-5" />
+                Mở lại Webcam trực tiếp
+              </button>
+            )}
 
             <p className="text-[11px] text-center text-[#6B7280] dark:text-[#94A3B8] flex items-center justify-center gap-1">
               <WifiOff className="w-3.5 h-3.5" />
@@ -394,13 +450,10 @@ export function CameraCaptureSheet({
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
-                onClick={() => {
-                  stopStream();
-                  setMode('idle');
-                }}
+                onClick={handleClose}
                 className="h-12 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-sm font-medium text-[#111827] dark:text-[#F8FAFC]"
               >
-                Quay lại
+                Huỷ
               </button>
               <button
                 type="button"
@@ -408,7 +461,7 @@ export function CameraCaptureSheet({
                 className="h-12 rounded-xl bg-[#059669] text-white text-sm font-semibold flex items-center justify-center gap-2"
               >
                 <Camera className="w-4 h-4" />
-                Chụp ngay
+                Chụp ảnh xác nhận
               </button>
             </div>
           </div>
@@ -443,7 +496,7 @@ export function CameraCaptureSheet({
               <button
                 type="button"
                 disabled={submitting}
-                onClick={() => setMode('idle')}
+                onClick={() => (isDesktop ? void startLiveCamera(true) : setMode('idle'))}
                 className="col-span-2 h-12 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-sm font-medium text-[#111827] dark:text-[#F8FAFC] flex items-center justify-center gap-1.5"
               >
                 <RefreshCw className="w-4 h-4" />
