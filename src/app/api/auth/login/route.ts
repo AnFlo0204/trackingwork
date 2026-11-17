@@ -12,6 +12,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const username = String(body?.username ?? '').trim();
     const secret = String(body?.secret ?? '');
+    const rememberMe = body?.rememberMe !== false;
 
     if (!username || !secret) {
       return NextResponse.json(
@@ -123,9 +124,10 @@ export async function POST(req: Request) {
     }
 
     const role = matched.role === 'admin' ? 'admin' : 'member';
-    const { token, signingKey } = createSessionToken(matched.id, role);
+    const { token, signingKey } = createSessionToken(matched.id, role, { rememberMe });
     const res = NextResponse.json({
       signingKey,
+      rememberMe,
       serverNowMs: Date.now(),
       user: {
         id: matched.id,
@@ -139,7 +141,7 @@ export async function POST(req: Request) {
         created_at: matched.created_at,
       },
     });
-    res.cookies.set(SESSION_COOKIE_NAME, token, getSessionCookieOptions());
+    res.cookies.set(SESSION_COOKIE_NAME, token, getSessionCookieOptions(rememberMe));
     return res;
   } catch (err) {
     console.error('Login error:', err);

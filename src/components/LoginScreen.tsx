@@ -14,6 +14,7 @@ interface LoginScreenProps {
 export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenProps) {
   const [username, setUsername] = useState('');
   const [secret, setSecret] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [showSecret, setShowSecret] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +32,7 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), secret }),
+        body: JSON.stringify({ username: username.trim(), secret, rememberMe }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -140,6 +141,23 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
               </button>
             </div>
           </div>
+
+          <label className="flex items-start gap-2.5 rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] px-3.5 py-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="mt-0.5 w-4 h-4 accent-[#059669] rounded shrink-0"
+            />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-[#111827] dark:text-[#F8FAFC]">
+                Duy trì đăng nhập trên thiết bị này (90 ngày)
+              </span>
+              <span className="block text-[11px] text-[#6B7280] dark:text-[#94A3B8] mt-0.5">
+                Tự động giữ &amp; gia hạn phiên đăng nhập cho đến khi bạn bấm Đăng xuất.
+              </span>
+            </span>
+          </label>
 
           {error && (
             <div className="rounded-xl bg-[#FEF2F2] dark:bg-[#450A0A] border border-[#FECACA] dark:border-[#7F1D1D] px-3.5 py-2.5 text-sm text-[#B91C1C] dark:text-[#FCA5A5]">

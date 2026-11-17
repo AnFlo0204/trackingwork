@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedSession } from '@/lib/auth';
+import {
+  createSessionToken,
+  getAuthenticatedSession,
+  getSessionCookieOptions,
+  SESSION_COOKIE_NAME,
+  SLIDING_RENEW_THRESHOLD_SECONDS,
+} from '@/lib/auth';
 import {
   buildAssignedChoreItems,
   buildWeeklySettlementRows,
@@ -328,7 +334,7 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       me: freshMe,
       chores: choresRes.data || [],
       activeSessions: sessionsRes.data || [],
@@ -356,6 +362,18 @@ export async function GET() {
       currentPeriodKey,
       signingKey: session.signingKey,
     });
+
+    // Sliding expiration: automatically renew 90-day persistent cookie if older than 24h (keeping exact sid)
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (session.rememberMe && nowSec - session.issuedAtSec >= SLIDING_RENEW_THRESHOLD_SECONDS) {
+      const renewed = createSessionToken(me.id, me.role, {
+        rememberMe: true,
+        existingSid: session.sid,
+      });
+      res.cookies.set(SESSION_COOKIE_NAME, renewed.token, getSessionCookieOptions(true));
+    }
+
+    return res;
   } catch (err) {
     console.error('Bootstrap error:', err);
     return NextResponse.json({ error: 'Không thể tải dữ liệu.' }, { status: 500 });

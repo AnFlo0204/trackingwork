@@ -6,7 +6,10 @@ import type { ProfilePublic } from './types';
 export const SESSION_COOKIE_NAME =
   process.env.NODE_ENV === 'production' ? '__Host-trackingwork-session' : 'hct_session';
 const LEGACY_COOKIE_NAME = 'hct_session';
-const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+
+export const PERSISTENT_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 90; // 90 days
+export const SHORT_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24; // 24 hours
+export const SLIDING_RENEW_THRESHOLD_SECONDS = 60 * 60 * 24; // refresh if older than 24h
 
 function getSessionSecret(): string {
   const explicit = process.env.APP_SESSION_SECRET;
@@ -23,13 +26,17 @@ export interface SessionPayload {
   uid: string;
   role: 'admin' | 'member';
   sid: string;
+  iat?: number;
   exp: number;
+  rm?: boolean;
 }
 
 export interface AuthenticatedSession {
   profile: ProfilePublic;
   sid: string;
   signingKey: string;
+  rememberMe: boolean;
+  issuedAtSec: number;
 }
 
 export function deriveSessionSigningKey(sid: string, uid: string): string {
@@ -39,13 +46,23 @@ export function deriveSessionSigningKey(sid: string, uid: string): string {
     .digest('hex');
 }
 
-export function createSessionToken(uid: string, role: 'admin' | 'member'): { token: string; sid: string; signingKey: string } {
-  const sid = crypto.randomBytes(16).toString('hex');
+export function createSessionToken(
+  uid: string,
+  role: 'admin' | 'member',
+  opts?: { rememberMe?: boolean; existingSid?: string },
+): { token: string; sid: string; signingKey: string; rememberMe: boolean } {
+  const rememberMe = opts?.rememberMe !== false;
+  const sid = opts?.existingSid || crypto.randomBytes(16).toString('hex');
+  const nowSec = Math.floor(Date.now() / 1000);
+  const ttl = rememberMe ? PERSISTENT_SESSION_MAX_AGE_SECONDS : SHORT_SESSION_MAX_AGE_SECONDS;
+
   const payload: SessionPayload = {
     uid,
     role,
     sid,
-    exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
+    iat: nowSec,
+    exp: nowSec + ttl,
+    rm: rememberMe,
   };
 
   const iv = crypto.randomBytes(12);
@@ -61,6 +78,7 @@ export function createSessionToken(uid: string, role: 'admin' | 'member'): { tok
     token: `${envelope}.${sig}`,
     sid,
     signingKey: deriveSessionSigningKey(sid, uid),
+    rememberMe,
   };
 }
 
@@ -131,6 +149,8 @@ export async function getAuthenticatedSession(): Promise<AuthenticatedSession | 
     },
     sid: verified.sid,
     signingKey: deriveSessionSigningKey(verified.sid, data.id),
+    rememberMe: verified.rm !== false,
+    issuedAtSec: Number(verified.iat || 0),
   };
 }
 
@@ -139,12 +159,18 @@ export async function getAuthenticatedProfile(): Promise<ProfilePublic | null> {
   return sess ? sess.profile : null;
 }
 
-export function getSessionCookieOptions() {
-  return {
+export function getSessionCookieOptions(rememberMe = true) {
+  const base = {
     httpOnly: true,
     sameSite: 'strict' as const,
     secure: process.env.NODE_ENV === 'production',
     path: '/',
-    maxAge: SESSION_MAX_AGE_SECONDS,
   };
+  if (rememberMe) {
+    return {
+      ...base,
+      maxAge: PERSISTENT_SESSION_MAX_AGE_SECONDS,
+    };
+  }
+  return base;
 }

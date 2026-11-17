@@ -64,6 +64,7 @@ async function bootstrapFetcher(url: string): Promise<BootstrapPayload | null> {
 export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   const [darkMode, setDarkMode] = useState(false);
   const [authed, setAuthed] = useState(initialAuthed);
+  const [checkingSession, setCheckingSession] = useState(!initialAuthed);
   const [tab, setTab] = useState<TabKey>('chores');
 
   const [captureTarget, setCaptureTarget] = useState<CaptureTarget | null>(null);
@@ -108,7 +109,26 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     } else {
       setNotifPermission('unsupported');
     }
-  }, []);
+
+    if (!initialAuthed) {
+      let active = true;
+      fetch('/api/auth/session', { cache: 'no-store' })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (active && json?.authed) {
+            setAuthed(true);
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (active) setCheckingSession(false);
+        });
+      return () => {
+        active = false;
+      };
+    }
+    setCheckingSession(false);
+  }, [initialAuthed]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -370,6 +390,15 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
             : tab === 'assign'
               ? 'Giao việc thành viên'
               : 'Quản trị hệ thống';
+
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen w-full bg-[#F8F9FA] dark:bg-[#0F172A] flex flex-col items-center justify-center p-8 space-y-3">
+        <div className="w-8 h-8 border-2 border-[#059669] border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-[#6B7280] dark:text-[#94A3B8]">Đang kiểm tra phiên đăng nhập...</p>
+      </div>
+    );
+  }
 
   if (!authed) {
     return (
