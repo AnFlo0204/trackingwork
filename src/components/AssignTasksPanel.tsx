@@ -1,7 +1,16 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { CalendarClock, CheckCircle2, ClipboardList, PauseCircle, PlayCircle, Plus, Trash2 } from 'lucide-react';
+import {
+  CalendarClock,
+  CheckCircle2,
+  ClipboardList,
+  Gift,
+  PauseCircle,
+  PlayCircle,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import type {
   AssignedChoreItem,
   AssignmentScheduleType,
@@ -10,12 +19,16 @@ import type {
 } from '@/lib/types';
 import { ChoreIcon } from './ChoreIcon';
 import { signedFetch } from '@/lib/requestSigner';
+import type { BonusTarget } from './AwardBonusModal';
 
 interface AssignTasksPanelProps {
   chores: Chore[];
   members: ProfilePublic[];
   assignedChores: AssignedChoreItem[];
   currentVnDate: string;
+  canAwardBonus?: boolean;
+  currentUserId?: string;
+  onAwardBonus?: (target: BonusTarget) => void;
   onRefresh: () => Promise<void>;
 }
 
@@ -47,14 +60,21 @@ export function AssignTasksPanel({
   members,
   assignedChores,
   currentVnDate,
+  canAwardBonus = false,
+  currentUserId = '',
+  onAwardBonus,
   onRefresh,
 }: AssignTasksPanelProps) {
   const activeChores = chores.filter((c) => c.is_active);
   const activeMembers = members.filter((m) => m.is_active);
+  const rewardableMembers = activeMembers.filter((m) => m.id !== currentUserId);
 
   const [choreId, setChoreId] = useState(activeChores[0]?.id || '');
   const [assigneeId, setAssigneeId] = useState(
     activeMembers.find((m) => m.role === 'member')?.id || activeMembers[0]?.id || '',
+  );
+  const [bonusRecipientId, setBonusRecipientId] = useState(
+    rewardableMembers[0]?.id || '',
   );
   const [scheduleType, setScheduleType] = useState<AssignmentScheduleType>('daily');
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([1, 3, 5]);
@@ -63,6 +83,7 @@ export function AssignTasksPanel({
   const [penaltyAmount, setPenaltyAmount] = useState(
     String(activeChores[0]?.penalty_amount ?? 20000),
   );
+  const [bonusAmount, setBonusAmount] = useState('0');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
@@ -105,6 +126,7 @@ export function AssignTasksPanel({
           due_date: scheduleType === 'once' ? dueDate : null,
           due_time: dueTime,
           penalty_amount: Number(penaltyAmount || 0),
+          bonus_amount: Number(bonusAmount || 0),
         }),
       });
       const data = await res.json();
@@ -255,7 +277,7 @@ export function AssignTasksPanel({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           <div>
             <label className="block text-[11px] font-semibold text-[#6B7280] dark:text-[#94A3B8] mb-1">
               Giờ chốt hạn (UTC+7)
@@ -281,6 +303,20 @@ export function AssignTasksPanel({
               className="w-full h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm tabular-nums"
             />
           </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-[#059669] dark:text-[#34D399] mb-1">
+              Thưởng đúng hạn (VNĐ)
+            </label>
+            <input
+              type="number"
+              min={0}
+              step={5000}
+              value={bonusAmount}
+              onChange={(e) => setBonusAmount(e.target.value)}
+              placeholder="0"
+              className="w-full h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm text-[#059669] dark:text-[#34D399] font-semibold tabular-nums"
+            />
+          </div>
         </div>
 
         {msg && (
@@ -304,6 +340,46 @@ export function AssignTasksPanel({
           {saving ? 'Đang giao việc...' : 'Xác nhận giao việc'}
         </button>
       </form>
+
+      {canAwardBonus && onAwardBonus && rewardableMembers.length > 0 && (
+        <div className="bg-gradient-to-r from-[#ECFDF5] to-[#FFFBEB] dark:from-[#064E3B]/40 dark:to-[#451A03]/40 border border-[#FCD34D]/50 rounded-2xl p-4 space-y-2.5">
+          <div className="flex items-center gap-2">
+            <Gift className="w-4 h-4 text-[#D97706] dark:text-[#FBBF24]" />
+            <h3 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
+              Thưởng trực tiếp thành viên làm tốt
+            </h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={bonusRecipientId}
+              onChange={(e) => setBonusRecipientId(e.target.value)}
+              className="flex-1 h-11 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm"
+            >
+              {rewardableMembers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.display_name} ({m.current_balance.toLocaleString('vi-VN')}đ)
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                const target = rewardableMembers.find((m) => m.id === bonusRecipientId);
+                if (target) {
+                  onAwardBonus({
+                    recipientId: target.id,
+                    recipientName: target.display_name,
+                  });
+                }
+              }}
+              className="h-11 px-4 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white text-xs font-bold inline-flex items-center gap-1.5 shrink-0"
+            >
+              <Gift className="w-3.5 h-3.5" />
+              Tặng thưởng
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Assigned List */}
       <div className="space-y-2.5">
@@ -369,9 +445,16 @@ export function AssignTasksPanel({
               </div>
 
               <div className="flex items-center justify-between text-xs pt-1 border-t border-[#F3F4F6] dark:border-[#334155] tabular-nums">
-                <span className="text-[#B45309] dark:text-[#FCD34D] font-semibold">
-                  Phạt trễ: -{item.penalty_amount.toLocaleString('vi-VN')}đ
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[#B45309] dark:text-[#FCD34D] font-semibold">
+                    Phạt trễ: -{item.penalty_amount.toLocaleString('vi-VN')}đ
+                  </span>
+                  {item.bonus_amount > 0 && (
+                    <span className="text-[#059669] dark:text-[#34D399] font-semibold">
+                      • Thưởng: +{item.bonus_amount.toLocaleString('vi-VN')}đ
+                    </span>
+                  )}
+                </div>
 
                 {item.cycle_status === 'completed' ? (
                   <span className="inline-flex items-center gap-1 font-semibold text-[#059669] dark:text-[#34D399]">

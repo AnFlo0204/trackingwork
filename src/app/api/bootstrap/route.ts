@@ -9,8 +9,10 @@ import { runRetentionCleanup } from '@/lib/cleanup';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchAuthoritativeServerTime, getVnDateParts } from '@/lib/time';
 import {
+  DEFAULT_BONUS_REWARD_CONFIG,
   DEFAULT_FEATURE_FLAGS,
   DEFAULT_WEEKLY_FUND_CONFIG,
+  type BonusRewardConfig,
   type ChoreLogItem,
   type FeatureFlags,
   type FundTransactionItem,
@@ -78,7 +80,7 @@ export async function GET() {
       // Lightweight recent logs (last 8 days) for ChoreBoard "Last Completed By" & Analytics
       supabase
         .from('chore_logs')
-        .select('id, chore_id, profile_id, assigned_chore_id, cycle_key, proof_url, thumb_url, before_proof_url, points_awarded, chore_title_snapshot, quality_status, server_timestamp, created_at')
+        .select('id, chore_id, profile_id, assigned_chore_id, cycle_key, proof_url, thumb_url, before_proof_url, points_awarded, chore_title_snapshot, quality_status, bonus_awarded, bonus_by, bonus_note, server_timestamp, created_at')
         .gte('created_at', sevenDaysAgoIso)
         .order('created_at', { ascending: false })
         .limit(100),
@@ -114,6 +116,7 @@ export async function GET() {
 
     let featureFlags: FeatureFlags = { ...DEFAULT_FEATURE_FLAGS };
     let weeklyFundConfig: WeeklyFundConfig = { ...DEFAULT_WEEKLY_FUND_CONFIG };
+    let bonusRewardConfig: BonusRewardConfig = { ...DEFAULT_BONUS_REWARD_CONFIG };
     let sharedPartyFund: SharedPartyFund = { balance: 0, show_banner: true };
     let retentionDays = 90;
     let lastCleanupAt: string | null = null;
@@ -131,6 +134,11 @@ export async function GET() {
           enabled: Boolean(row.value.enabled ?? true),
           reset_day: Number(row.value.reset_day ?? 1),
           reset_hour: Number(row.value.reset_hour ?? 0),
+        };
+      } else if (row.key === 'bonus_reward_config' && row.value) {
+        bonusRewardConfig = {
+          enabled: Boolean(row.value.enabled ?? true),
+          max_delegated_bonus: Number(row.value.max_delegated_bonus ?? 100000),
         };
       } else if (row.key === 'shared_party_fund' && row.value) {
         sharedPartyFund = {
@@ -224,6 +232,9 @@ export async function GET() {
         ok_count: rStats.ok,
         sloppy_count: rStats.sloppy,
         my_reaction: rStats.mine,
+        bonus_awarded: Number(l.bonus_awarded || 0),
+        bonus_by: (l.bonus_by as string) || null,
+        bonus_note: (l.bonus_note as string) || null,
         server_timestamp: String(l.server_timestamp),
         created_at: String(l.created_at),
         member_name: member?.display_name || member?.username || 'Thành viên',
@@ -333,6 +344,7 @@ export async function GET() {
       weeklySettlement,
       sharedPartyFund,
       weeklyFundConfig,
+      bonusRewardConfig,
       penalties,
       featureFlags,
       retentionDays,

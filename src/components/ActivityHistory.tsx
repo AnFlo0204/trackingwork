@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Columns2,
+  Gift,
   History,
   Lock,
   Search,
@@ -17,6 +18,7 @@ import { haptic } from '@/lib/offlineQueue';
 import { getInitials } from './ChoreIcon';
 import { AuditLogView } from './AuditLogView';
 import { ProtectedImage } from './ProtectedImage';
+import type { BonusTarget } from './AwardBonusModal';
 
 interface ActivityHistoryProps {
   logs: ChoreLogItem[];
@@ -29,9 +31,12 @@ interface ActivityHistoryProps {
   onChangeSubView: (v: 'feed' | 'audit') => void;
   featureFlags: FeatureFlags;
   isAdmin: boolean;
+  canAwardBonus?: boolean;
+  currentUserId?: string;
   onInspectPhoto: (log: ChoreLogItem) => void;
   onModerate: (log: ChoreLogItem, action?: 'reject' | 'rework_half_penalty') => Promise<void>;
   onReact: (log: ChoreLogItem, reaction: 'ok' | 'sloppy') => Promise<void>;
+  onAwardBonus?: (target: BonusTarget) => void;
 }
 
 export function ActivityHistory({
@@ -45,9 +50,12 @@ export function ActivityHistory({
   onChangeSubView,
   featureFlags,
   isAdmin,
+  canAwardBonus = false,
+  currentUserId = '',
   onInspectPhoto,
   onModerate,
   onReact,
+  onAwardBonus,
 }: ActivityHistoryProps) {
   const [query, setQuery] = useState('');
   const [selectedChoreId, setSelectedChoreId] = useState<string>('ALL');
@@ -256,6 +264,13 @@ export function ActivityHistory({
                               </span>
                             )}
                           </div>
+                          {log.bonus_awarded > 0 && (
+                            <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-[#ECFDF5] to-[#FEF3C7] dark:from-[#064E3B] dark:to-[#451A03] border border-[#FCD34D]/60 text-[11px] font-bold text-[#047857] dark:text-[#FCD34D] tabular-nums">
+                              <Gift className="w-3 h-3 shrink-0" />
+                              Đã thưởng +{log.bonus_awarded.toLocaleString('vi-VN')}đ
+                              {log.bonus_by ? ` bởi ${log.bonus_by}` : ''}
+                            </div>
+                          )}
                         </div>
 
                         <button
@@ -299,8 +314,8 @@ export function ActivityHistory({
                         </button>
                       </div>
 
-                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#F3F4F6] dark:border-[#334155]">
-                        <div className="flex items-center gap-1.5">
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#F3F4F6] dark:border-[#334155] flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <button
                             type="button"
                             onClick={() => {
@@ -332,6 +347,25 @@ export function ActivityHistory({
                             <ThumbsDown className="w-3.5 h-3.5" />
                             Làm ẩu{log.sloppy_count > 0 ? ` (${log.sloppy_count})` : ''}
                           </button>
+
+                          {canAwardBonus && onAwardBonus && log.profile_id !== currentUserId && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                haptic(10);
+                                onAwardBonus({
+                                  logId: log.id,
+                                  recipientId: log.profile_id,
+                                  recipientName: log.member_name,
+                                  defaultNote: log.chore_title,
+                                });
+                              }}
+                              className="h-8 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 bg-[#FFFBEB] dark:bg-[#451A03]/60 text-[#B45309] dark:text-[#FCD34D] border border-[#FDE68A] dark:border-[#92400E] hover:opacity-90 transition"
+                            >
+                              <Gift className="w-3.5 h-3.5" />
+                              Tặng thưởng
+                            </button>
+                          )}
                         </div>
 
                         {log.before_proof_url && (

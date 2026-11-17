@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns2,
+  Gift,
   RotateCcw,
   ThumbsDown,
   ThumbsUp,
@@ -17,25 +18,32 @@ import {
 import type { ChoreLogItem } from '@/lib/types';
 import { formatIsoToVn } from '@/lib/time';
 import { ProtectedImage } from './ProtectedImage';
+import type { BonusTarget } from './AwardBonusModal';
 
 interface PhotoViewerModalProps {
   log: ChoreLogItem | null;
   allLogs?: ChoreLogItem[];
   isAdmin: boolean;
+  canAwardBonus?: boolean;
+  currentUserId?: string;
   onSelectLog?: (log: ChoreLogItem) => void;
   onClose: () => void;
   onModerate?: (log: ChoreLogItem, action?: 'reject' | 'rework_half_penalty') => Promise<void>;
   onReact?: (log: ChoreLogItem, reaction: 'ok' | 'sloppy') => Promise<void>;
+  onAwardBonus?: (target: BonusTarget) => void;
 }
 
 export function PhotoViewerModal({
   log,
   allLogs = [],
   isAdmin,
+  canAwardBonus = false,
+  currentUserId = '',
   onSelectLog,
   onClose,
   onModerate,
   onReact,
+  onAwardBonus,
 }: PhotoViewerModalProps) {
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -155,7 +163,15 @@ export function PhotoViewerModal({
         {/* Top Bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 text-white shrink-0">
           <div className="min-w-0 pr-3">
-            <p className="text-sm md:text-base font-semibold truncate">{log.chore_title}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm md:text-base font-semibold truncate">{log.chore_title}</p>
+              {log.bonus_awarded > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[10px] font-bold tabular-nums">
+                  <Gift className="w-3 h-3" />
+                  Đã thưởng +{log.bonus_awarded.toLocaleString('vi-VN')}đ
+                </span>
+              )}
+            </div>
             <p className="text-xs text-white/70 tabular-nums truncate">
               {log.member_name} • {formatIsoToVn(log.server_timestamp)}
               {log.points_awarded > 0 ? ` • +${log.points_awarded} điểm` : ''}
@@ -314,7 +330,7 @@ export function PhotoViewerModal({
             </div>
 
             {onReact && (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
                   onClick={() => onReact(log, 'ok')}
@@ -337,6 +353,23 @@ export function PhotoViewerModal({
                   <ThumbsDown className="w-3.5 h-3.5" />
                   Báo làm ẩu{log.sloppy_count > 0 ? ` (${log.sloppy_count})` : ''}
                 </button>
+                {canAwardBonus && onAwardBonus && log.profile_id !== currentUserId && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onAwardBonus({
+                        logId: log.id,
+                        recipientId: log.profile_id,
+                        recipientName: log.member_name,
+                        defaultNote: log.chore_title,
+                      })
+                    }
+                    className="h-10 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-gradient-to-r from-[#059669] to-[#D97706] text-white"
+                  >
+                    <Gift className="w-3.5 h-3.5" />
+                    Tặng thưởng
+                  </button>
+                )}
               </div>
             )}
           </div>

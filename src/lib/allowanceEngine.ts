@@ -28,6 +28,7 @@ interface RawAssignment {
   due_date: string | null;
   due_time: string;
   penalty_amount: number;
+  bonus_amount?: number;
   is_active: boolean;
   created_at: string;
 }
@@ -442,6 +443,7 @@ export function buildAssignedChoreItems(params: {
       due_date: a.due_date,
       due_time: a.due_time || '23:59',
       penalty_amount: Number(a.penalty_amount || 0),
+      bonus_amount: Number(a.bonus_amount || 0),
       is_active: Boolean(a.is_active),
       created_at: a.created_at,
       chore_title: choreInfo.title,
@@ -485,6 +487,7 @@ export function buildWeeklySettlementRows(params: {
       let totalPenalties = 0;
       let totalBountyPaid = 0;
       let totalBountyEarned = 0;
+      let totalBonuses = 0;
       let totalRefunds = 0;
 
       for (const tx of myTxs) {
@@ -494,6 +497,12 @@ export function buildWeeklySettlementRows(params: {
           totalBountyPaid += Math.abs(tx.amount);
         } else if (tx.category === 'bounty_earned') {
           totalBountyEarned += Math.max(0, tx.amount);
+        } else if (
+          tx.tx_type === 'BONUS_REWARD' ||
+          tx.tx_type === 'bonus_reward' ||
+          tx.category === 'bonus_reward'
+        ) {
+          totalBonuses += Math.max(0, tx.amount);
         } else if (tx.tx_type === 'refund' || tx.category === 'refund') {
           totalRefunds += Math.max(0, tx.amount);
         }
@@ -506,6 +515,7 @@ export function buildWeeklySettlementRows(params: {
         total_penalties: totalPenalties,
         total_bounty_paid: totalBountyPaid,
         total_bounty_earned: totalBountyEarned,
+        total_bonuses: totalBonuses,
         total_refunds: totalRefunds,
         current_balance: m.current_balance,
       };

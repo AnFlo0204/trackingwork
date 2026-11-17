@@ -40,6 +40,7 @@ import { PhotoViewerModal } from './PhotoViewerModal';
 import { WeeklyWalletDrawer } from './WeeklyWalletDrawer';
 import { NotificationDrawer } from './NotificationDrawer';
 import { ShiftSwapSheet } from './ShiftSwapSheet';
+import { AwardBonusModal, type BonusTarget } from './AwardBonusModal';
 
 type TabKey = 'chores' | 'history' | 'audit' | 'stats' | 'assign' | 'admin';
 
@@ -70,6 +71,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   const [walletOpen, setWalletOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [swapAssignment, setSwapAssignment] = useState<AssignedChoreItem | null>(null);
+  const [bonusTarget, setBonusTarget] = useState<BonusTarget | null>(null);
 
   const [offlineCount, setOfflineCount] = useState(0);
   const [offlineNotice, setOfflineNotice] = useState<string | null>(null);
@@ -393,6 +395,10 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
 
   if (!data) return null;
 
+  const bonusRewardConfig = data.bonusRewardConfig || { enabled: true, max_delegated_bonus: 100000 };
+  const canAwardBonus = (isAdmin || isDelegatedAssigner) && bonusRewardConfig.enabled;
+  const maxDelegatedCap = isAdmin ? null : bonusRewardConfig.max_delegated_bonus;
+
   return (
     <div
       onTouchStart={onTouchStart}
@@ -707,9 +713,12 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                 onChangeSubView={(v) => setTab(v === 'audit' ? 'audit' : 'history')}
                 featureFlags={data.featureFlags}
                 isAdmin={isAdmin}
+                canAwardBonus={canAwardBonus}
+                currentUserId={data.me.id}
                 onInspectPhoto={(log) => setInspectingLog(log)}
                 onModerate={handleModerateLog}
                 onReact={handleReactLog}
+                onAwardBonus={(t) => setBonusTarget(t)}
               />
             )}
 
@@ -727,9 +736,12 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                     onChangeSubView={(v) => setTab(v === 'audit' ? 'audit' : 'history')}
                     featureFlags={data.featureFlags}
                     isAdmin={isAdmin}
+                    canAwardBonus={canAwardBonus}
+                    currentUserId={data.me.id}
                     onInspectPhoto={(log) => setInspectingLog(log)}
                     onModerate={handleModerateLog}
                     onReact={handleReactLog}
+                    onAwardBonus={(t) => setBonusTarget(t)}
                   />
                 </div>
                 <div className="hidden md:block">
@@ -765,6 +777,9 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   members={data.members}
                   assignedChores={data.assignedChores}
                   currentVnDate={data.currentVnDate}
+                  canAwardBonus={canAwardBonus}
+                  currentUserId={data.me.id}
+                  onAwardBonus={(t) => setBonusTarget(t)}
                   onRefresh={refreshData}
                 />
               </div>
@@ -781,12 +796,15 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                 sharedPartyFund={data.sharedPartyFund}
                 featureFlags={data.featureFlags}
                 weeklyFundConfig={data.weeklyFundConfig}
+                bonusRewardConfig={bonusRewardConfig}
                 retentionDays={data.retentionDays}
                 lastCleanupAt={data.lastCleanupAt}
                 currentVnDate={data.currentVnDate}
+                currentUserId={data.me.id}
                 onRefresh={refreshData}
                 onModerate={handleModerateLog}
                 onInspectPhoto={(log) => setInspectingLog(log)}
+                onAwardBonus={(t) => setBonusTarget(t)}
               />
             )}
           </main>
@@ -914,9 +932,19 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
         allLogs={data.logs}
         onSelectLog={(nextLog) => setInspectingLog(nextLog)}
         isAdmin={isAdmin}
+        canAwardBonus={canAwardBonus}
+        currentUserId={data.me.id}
         onClose={() => setInspectingLog(null)}
         onModerate={handleModerateLog}
         onReact={handleReactLog}
+        onAwardBonus={(t) => setBonusTarget(t)}
+      />
+
+      <AwardBonusModal
+        target={bonusTarget}
+        maxDelegatedCap={maxDelegatedCap}
+        onClose={() => setBonusTarget(null)}
+        onSuccess={refreshData}
       />
     </div>
   );

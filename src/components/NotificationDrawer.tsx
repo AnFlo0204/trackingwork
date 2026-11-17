@@ -86,7 +86,14 @@ export function NotificationDrawer({
                 className={`py-3 space-y-0.5 ${!n.is_read ? 'bg-[#ECFDF5]/40 dark:bg-[#064E3B]/20 -mx-2 px-2 rounded-xl' : ''}`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
+                  <p
+                    className={`text-sm font-bold ${
+                      n.kind === 'bonus_reward'
+                        ? 'text-[#B45309] dark:text-[#FCD34D]'
+                        : 'text-[#111827] dark:text-[#F8FAFC]'
+                    }`}
+                  >
+                    {n.kind === 'bonus_reward' ? '🎁 ' : ''}
                     {n.title}
                   </p>
                   {!n.is_read && <span className="w-2 h-2 rounded-full bg-[#059669] shrink-0" />}

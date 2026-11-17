@@ -49,6 +49,11 @@ function formatActionBadge(actionType: string): { label: string; tone: string } 
         label: 'Quỹ & Quyết toán',
         tone: 'bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399]',
       };
+    case 'AWARD_BONUS':
+      return {
+        label: 'Tặng thưởng',
+        tone: 'bg-[#FFFBEB] dark:bg-[#451A03] text-[#D97706] dark:text-[#FCD34D]',
+      };
     case 'DELETE_CHORE':
     case 'EDIT_CHORE':
       return {
@@ -104,7 +109,7 @@ export function AuditLogView({ initialItems, initialNextCursor }: AuditLogViewPr
       if (group === 'PHOTO' && !['REJECT_PROOF', 'DELETE_PHOTO', 'REWORK_HALF_PENALTY'].includes(item.action_type)) {
         return false;
       }
-      if (group === 'FUND' && !['ADJUST_FUND', 'CLOSE_WEEK', 'RESET_PARTY_FUND'].includes(item.action_type)) {
+      if (group === 'FUND' && !['ADJUST_FUND', 'CLOSE_WEEK', 'RESET_PARTY_FUND', 'AWARD_BONUS'].includes(item.action_type)) {
         return false;
       }
       if (group === 'CHORE' && !['DELETE_CHORE', 'EDIT_CHORE'].includes(item.action_type)) {

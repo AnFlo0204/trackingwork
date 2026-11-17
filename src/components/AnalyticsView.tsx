@@ -239,10 +239,13 @@ export function AnalyticsView({
                       Nhận: {row.current_balance.toLocaleString('vi-VN')}đ
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-[#6B7280] dark:text-[#94A3B8]">
-                    <span>Cấp: {row.weekly_allowance.toLocaleString('vi-VN')}đ</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px] text-[#6B7280] dark:text-[#94A3B8]">
+                    <span>Quỹ tuần: {row.weekly_allowance.toLocaleString('vi-VN')}đ</span>
+                    <span className="text-[#D97706] dark:text-[#FCD34D] font-semibold">
+                      Được thưởng (+): +{(row.total_bonuses || 0).toLocaleString('vi-VN')}đ
+                    </span>
                     <span className="text-[#DC2626]">
-                      Phạt/chi: -{(row.total_penalties + row.total_bounty_paid).toLocaleString('vi-VN')}đ
+                      Bị trừ (-): -{(row.total_penalties + row.total_bounty_paid).toLocaleString('vi-VN')}đ
                     </span>
                     <span className="text-[#059669]">
                       Làm hộ: +{row.total_bounty_earned.toLocaleString('vi-VN')}đ

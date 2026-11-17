@@ -27,6 +27,7 @@ export interface Chore {
   sort_order: number;
   frequency: ChoreFrequency;
   penalty_amount: number;
+  bonus_amount: number;
   require_before_after: boolean;
   min_duration_minutes: number;
   is_active: boolean;
@@ -64,6 +65,9 @@ export interface ChoreLogItem {
   ok_count: number;
   sloppy_count: number;
   my_reaction: 'ok' | 'sloppy' | null;
+  bonus_awarded: number;
+  bonus_by: string | null;
+  bonus_note: string | null;
   server_timestamp: string;
   created_at: string;
   member_name: string;
@@ -92,6 +96,7 @@ export interface AssignedChoreItem {
   due_date: string | null;
   due_time: string;
   penalty_amount: number;
+  bonus_amount: number;
   is_active: boolean;
   created_at: string;
   chore_title: string;
@@ -131,7 +136,7 @@ export interface ShiftSwapItem {
 export interface NotificationItem {
   id: string;
   profile_id: string;
-  kind: 'deadline_30m' | 'deadline_5m' | 'swap_request' | 'swap_accepted' | 'balance_update' | 'quality_alert';
+  kind: 'deadline_30m' | 'deadline_5m' | 'swap_request' | 'swap_accepted' | 'balance_update' | 'quality_alert' | 'bonus_reward';
   title: string;
   body: string;
   is_read: boolean;
@@ -143,7 +148,7 @@ export interface FundTransactionItem {
   profile_id: string;
   assigned_chore_id: string | null;
   chore_id: string | null;
-  tx_type: 'weekly_reset' | 'penalty' | 'adjustment' | 'refund';
+  tx_type: 'weekly_reset' | 'penalty' | 'adjustment' | 'refund' | 'BONUS_REWARD' | 'bonus_reward';
   category: string;
   amount: number;
   balance_after: number;
@@ -161,8 +166,14 @@ export interface WeeklySettlementRow {
   total_penalties: number;
   total_bounty_paid: number;
   total_bounty_earned: number;
+  total_bonuses: number;
   total_refunds: number;
   current_balance: number;
+}
+
+export interface BonusRewardConfig {
+  enabled: boolean;
+  max_delegated_bonus: number;
 }
 
 export interface SharedPartyFund {
@@ -212,6 +223,7 @@ export interface BootstrapPayload {
   weeklySettlement: WeeklySettlementRow[];
   sharedPartyFund: SharedPartyFund;
   weeklyFundConfig: WeeklyFundConfig;
+  bonusRewardConfig: BonusRewardConfig;
   penalties: PenaltyItem[];
   featureFlags: FeatureFlags;
   retentionDays: number;
@@ -235,4 +247,9 @@ export const DEFAULT_WEEKLY_FUND_CONFIG: WeeklyFundConfig = {
   enabled: true,
   reset_day: 1,
   reset_hour: 0,
+};
+
+export const DEFAULT_BONUS_REWARD_CONFIG: BonusRewardConfig = {
+  enabled: true,
+  max_delegated_bonus: 100000,
 };

@@ -30,6 +30,7 @@ export async function POST(req: Request) {
       ? String(body.due_time)
       : '23:59';
     const penaltyAmount = Math.max(0, Math.floor(Number(body?.penalty_amount ?? 20000)));
+    const bonusAmount = Math.max(0, Math.floor(Number(body?.bonus_amount ?? 0)));
 
     if (!choreId || !assigneeId) {
       return NextResponse.json({ error: 'Vui lòng chọn đầu việc và người nhận.' }, { status: 400 });
@@ -42,6 +43,24 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabaseAdmin();
+    if (bonusAmount > 0 && me.role !== 'admin') {
+      const { data: cfgRow } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'bonus_reward_config')
+        .maybeSingle();
+      const maxCap = Number(cfgRow?.value?.max_delegated_bonus ?? 100000);
+      if (cfgRow?.value?.enabled === false) {
+        return NextResponse.json({ error: 'Tính năng thưởng đang được Admin tắt.' }, { status: 403 });
+      }
+      if (bonusAmount > maxCap) {
+        return NextResponse.json(
+          { error: `Người giao việc chỉ được đặt mức thưởng tối đa ${maxCap.toLocaleString('vi-VN')}đ.` },
+          { status: 403 },
+        );
+      }
+    }
+
     const { data, error } = await supabase
       .from('assigned_chores')
       .insert({
@@ -53,6 +72,7 @@ export async function POST(req: Request) {
         due_date: scheduleType === 'once' ? dueDate : null,
         due_time: dueTime,
         penalty_amount: penaltyAmount,
+        bonus_amount: bonusAmount,
         is_active: true,
       })
       .select()
@@ -92,6 +112,9 @@ export async function PATCH(req: Request) {
     if (typeof body.is_active === 'boolean') updates.is_active = body.is_active;
     if (typeof body.penalty_amount !== 'undefined') {
       updates.penalty_amount = Math.max(0, Math.floor(Number(body.penalty_amount)));
+    }
+    if (typeof body.bonus_amount !== 'undefined') {
+      updates.bonus_amount = Math.max(0, Math.floor(Number(body.bonus_amount)));
     }
     if (/^\d{2}:\d{2}$/.test(String(body?.due_time || ''))) {
       updates.due_time = String(body.due_time);

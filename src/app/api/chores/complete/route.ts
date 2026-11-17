@@ -4,7 +4,7 @@ import { recordAuditLog } from '@/lib/audit';
 import { getAuthenticatedSession } from '@/lib/auth';
 import { extractAndVerifyProofBinary, verifySignedRequest } from '@/lib/requestIntegrity';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { fetchAuthoritativeServerTime, getVnDateParts } from '@/lib/time';
+import { fetchAuthoritativeServerTime, getVnDateParts, vnDateTimeToUtcMs } from '@/lib/time';
 
 const MAX_UPLOAD_BYTES = 300 * 1024;
 const ALLOWED_MIMES = new Set(['image/webp', 'image/jpeg']);
@@ -163,11 +163,16 @@ export async function POST(req: Request) {
       accepted_by: string | null;
       bounty_amount: number;
     } | null = null;
+    let autoAssignmentBonus: {
+      amount: number;
+      assignedById: string | null;
+      onTime: boolean;
+    } | null = null;
 
     if (assignedChoreId) {
       const { data: assignment } = await supabase
         .from('assigned_chores')
-        .select('id, assignee_id, chore_id, is_active, schedule_type, due_date')
+        .select('id, assignee_id, assigned_by, chore_id, is_active, schedule_type, due_date, due_time, bonus_amount')
         .eq('id', assignedChoreId)
         .maybeSingle();
 
@@ -176,6 +181,18 @@ export async function POST(req: Request) {
       }
       if (assignment.schedule_type === 'once' && assignment.due_date) {
         resolvedCycleKey = assignment.due_date;
+      }
+
+      const deadlineMs = resolvedCycleKey
+        ? vnDateTimeToUtcMs(resolvedCycleKey, assignment.due_time || '23:59')
+        : serverNowMs;
+      const bonusVal = Math.max(0, Math.round(Number(assignment.bonus_amount || 0)));
+      if (bonusVal > 0 && serverNowMs <= deadlineMs) {
+        autoAssignmentBonus = {
+          amount: bonusVal,
+          assignedById: assignment.assigned_by || null,
+          onTime: true,
+        };
       }
 
       const { data: swapRow } = await supabase
@@ -308,6 +325,41 @@ export async function POST(req: Request) {
         .from('chore_sessions')
         .update({ status: 'completed' })
         .eq('id', activeSessionId);
+    }
+
+    if (autoAssignmentBonus && autoAssignmentBonus.onTime && autoAssignmentBonus.amount > 0) {
+      const { data: bonusCfgRow } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'bonus_reward_config')
+        .maybeSingle();
+      const bonusEnabled = Boolean(bonusCfgRow?.value?.enabled ?? true);
+      if (bonusEnabled) {
+        let assignerName = 'Quản lý giao việc';
+        if (autoAssignmentBonus.assignedById) {
+          const { data: assigner } = await supabase
+            .from('profiles')
+            .select('display_name, username')
+            .eq('id', autoAssignmentBonus.assignedById)
+            .maybeSingle();
+          if (assigner) {
+            assignerName = assigner.display_name || assigner.username;
+          }
+        }
+        await supabase.rpc('award_member_bonus', {
+          p_recipient_id: me.id,
+          p_actor_id: autoAssignmentBonus.assignedById,
+          p_actor_name: assignerName,
+          p_amount: autoAssignmentBonus.amount,
+          p_reason: `Hoàn thành đúng hạn: ${chore.title}`,
+          p_log_id: insertedLog.id,
+          p_assigned_chore_id: assignedChoreId,
+          p_chore_id: chore.id,
+          p_cycle_key: resolvedCycleKey,
+          p_server_ts: serverTime.isoUtc,
+          p_is_auto: true,
+        });
+      }
     }
 
     if (acceptedSwap && acceptedSwap.accepted_by === me.id) {

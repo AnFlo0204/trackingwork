@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowDownLeft, ArrowUpRight, Wallet, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Gift, Wallet, X } from 'lucide-react';
 import type { FundTransactionItem, ProfilePublic } from '@/lib/types';
 import { formatIsoToVn } from '@/lib/time';
 
@@ -20,6 +20,9 @@ export function WeeklyWalletDrawer({
   if (!open) return null;
 
   const myTxs = transactions.filter((t) => t.profile_id === me.id);
+  const totalBonusEarned = myTxs
+    .filter((t) => t.tx_type === 'BONUS_REWARD' || t.tx_type === 'bonus_reward' || t.category === 'bonus_reward')
+    .reduce((acc, t) => acc + Math.max(0, t.amount), 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4 bg-black/50 backdrop-blur-[2px]">
@@ -36,7 +39,12 @@ export function WeeklyWalletDrawer({
               Số dư: {me.current_balance.toLocaleString('vi-VN')}đ
             </h2>
             <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
-              Định mức tuần được cấp: {me.weekly_allowance.toLocaleString('vi-VN')}đ
+              Định mức tuần: {me.weekly_allowance.toLocaleString('vi-VN')}đ
+              {totalBonusEarned > 0 && (
+                <span className="ml-2 font-bold text-[#D97706] dark:text-[#FCD34D]">
+                  • Thưởng làm tốt: +{totalBonusEarned.toLocaleString('vi-VN')}đ
+                </span>
+              )}
             </p>
           </div>
           <button
@@ -57,17 +65,25 @@ export function WeeklyWalletDrawer({
           ) : (
             myTxs.map((tx) => {
               const isPositive = tx.amount >= 0;
+              const isBonus =
+                tx.tx_type === 'BONUS_REWARD' ||
+                tx.tx_type === 'bonus_reward' ||
+                tx.category === 'bonus_reward';
               return (
                 <div key={tx.id} className="py-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div
                       className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                        isPositive
-                          ? 'bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399]'
-                          : 'bg-[#FEF2F2] dark:bg-[#450A0A] text-[#DC2626] dark:text-[#F87171]'
+                        isBonus
+                          ? 'bg-[#FFFBEB] dark:bg-[#451A03] text-[#D97706] dark:text-[#FCD34D]'
+                          : isPositive
+                            ? 'bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399]'
+                            : 'bg-[#FEF2F2] dark:bg-[#450A0A] text-[#DC2626] dark:text-[#F87171]'
                       }`}
                     >
-                      {isPositive ? (
+                      {isBonus ? (
+                        <Gift className="w-4 h-4" />
+                      ) : isPositive ? (
                         <ArrowDownLeft className="w-4 h-4" />
                       ) : (
                         <ArrowUpRight className="w-4 h-4" />
@@ -85,9 +101,11 @@ export function WeeklyWalletDrawer({
                   <div className="text-right shrink-0 tabular-nums">
                     <p
                       className={`text-sm font-bold ${
-                        isPositive
-                          ? 'text-[#059669] dark:text-[#34D399]'
-                          : 'text-[#DC2626] dark:text-[#F87171]'
+                        isBonus
+                          ? 'text-[#D97706] dark:text-[#FCD34D]'
+                          : isPositive
+                            ? 'text-[#059669] dark:text-[#34D399]'
+                            : 'text-[#DC2626] dark:text-[#F87171]'
                       }`}
                     >
                       {isPositive ? '+' : ''}

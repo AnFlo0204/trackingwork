@@ -44,6 +44,7 @@ export async function POST(req: Request) {
         cooldown_minutes: Math.max(0, Math.min(10080, Math.floor(Number(body?.cooldown_minutes ?? 30)))),
         frequency,
         penalty_amount: Math.max(0, Math.floor(Number(body?.penalty_amount ?? 20000))),
+        bonus_amount: Math.max(0, Math.floor(Number(body?.bonus_amount ?? 0))),
         require_before_after: requireBeforeAfter,
         min_duration_minutes: minDurationMinutes,
         sort_order: nextOrder,
@@ -129,6 +130,9 @@ export async function PATCH(req: Request) {
     if (['always', 'daily', 'weekly'].includes(body?.frequency)) updates.frequency = body.frequency;
     if (typeof body.penalty_amount !== 'undefined') {
       updates.penalty_amount = Math.max(0, Math.floor(Number(body.penalty_amount)));
+    }
+    if (typeof body.bonus_amount !== 'undefined') {
+      updates.bonus_amount = Math.max(0, Math.floor(Number(body.bonus_amount)));
     }
     if (typeof body.require_before_after === 'boolean') {
       updates.require_before_after = body.require_before_after;

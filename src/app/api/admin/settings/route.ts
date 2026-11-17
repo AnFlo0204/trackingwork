@@ -57,6 +57,25 @@ export async function POST(req: Request) {
       }
     }
 
+    if (body?.bonusRewardConfig && typeof body.bonusRewardConfig === 'object') {
+      const b = body.bonusRewardConfig;
+      const sanitizedBonus = {
+        enabled: Boolean(b.enabled ?? true),
+        max_delegated_bonus: Math.max(0, Math.min(10_000_000, Math.round(Number(b.max_delegated_bonus ?? 100000)))),
+      };
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'CHANGE_SETTINGS',
+        targetSummary: `Cập nhật Tặng thưởng (${sanitizedBonus.enabled ? 'Bật' : 'Tắt'}, Trần người giao việc: ${sanitizedBonus.max_delegated_bonus.toLocaleString('vi-VN')}đ)`,
+      });
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'bonus_reward_config', value: sanitizedBonus }, { onConflict: 'key' });
+      if (error) {
+        return NextResponse.json({ error: 'Không thể lưu cấu hình tặng thưởng.' }, { status: 500 });
+      }
+    }
+
     await bumpSyncSignal('all');
     return NextResponse.json({ ok: true });
   } catch (err) {

@@ -10,6 +10,7 @@ import {
   Database,
   Download,
   FileSpreadsheet,
+  Gift,
   KeyRound,
   PartyPopper,
   Plus,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 import type {
   AssignedChoreItem,
+  BonusRewardConfig,
   Chore,
   ChoreFrequency,
   ChoreLogItem,
@@ -39,6 +41,7 @@ import { signedFetch } from '@/lib/requestSigner';
 import { CHORE_ICON_OPTIONS, ChoreIcon } from './ChoreIcon';
 import { AssignTasksPanel } from './AssignTasksPanel';
 import { ProtectedImage } from './ProtectedImage';
+import type { BonusTarget } from './AwardBonusModal';
 
 interface AdminPanelProps {
   chores: Chore[];
@@ -50,12 +53,15 @@ interface AdminPanelProps {
   sharedPartyFund: SharedPartyFund;
   featureFlags: FeatureFlags;
   weeklyFundConfig: WeeklyFundConfig;
+  bonusRewardConfig: BonusRewardConfig;
   retentionDays: number;
   lastCleanupAt: string | null;
   currentVnDate: string;
+  currentUserId: string;
   onRefresh: () => Promise<void>;
   onModerate: (log: ChoreLogItem, action?: 'reject' | 'rework_half_penalty') => Promise<void>;
   onInspectPhoto: (log: ChoreLogItem) => void;
+  onAwardBonus: (target: BonusTarget) => void;
 }
 
 type AdminSection = 'flags' | 'assign' | 'chores' | 'members' | 'data';
@@ -103,12 +109,15 @@ export function AdminPanel({
   sharedPartyFund,
   featureFlags,
   weeklyFundConfig,
+  bonusRewardConfig,
   retentionDays,
   lastCleanupAt,
   currentVnDate,
+  currentUserId,
   onRefresh,
   onModerate,
   onInspectPhoto,
+  onAwardBonus,
 }: AdminPanelProps) {
   const [section, setSection] = useState<AdminSection>('flags');
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -144,13 +153,20 @@ export function AdminPanel({
   const [savingAdj, setSavingAdj] = useState(false);
   const [closingWeek, setClosingWeek] = useState(false);
 
-  // Retention state
+  // Retention & bonus config state
   const [retInput, setRetInput] = useState(String(retentionDays));
   const [cleaningUp, setCleaningUp] = useState(false);
+  const [maxBonusCapInput, setMaxBonusCapInput] = useState(
+    String(bonusRewardConfig.max_delegated_bonus ?? 100000),
+  );
 
   useEffect(() => {
     setRetInput(String(retentionDays));
   }, [retentionDays]);
+
+  useEffect(() => {
+    setMaxBonusCapInput(String(bonusRewardConfig.max_delegated_bonus ?? 100000));
+  }, [bonusRewardConfig.max_delegated_bonus]);
 
   useEffect(() => {
     const next: Record<string, string> = {};
@@ -185,6 +201,20 @@ export function AdminPanel({
     }
     await onRefresh();
     notify('ok', 'Đã đồng bộ cấu hình cho tất cả thành viên.');
+  }
+
+  async function updateBonusRewardConfig(nextCfg: BonusRewardConfig) {
+    const res = await signedFetch('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bonusRewardConfig: nextCfg }),
+    });
+    if (!res.ok) {
+      notify('err', 'Không thể cập nhật cấu hình tặng thưởng.');
+      return;
+    }
+    await onRefresh();
+    notify('ok', 'Đã lưu cấu hình Tặng thưởng.');
   }
 
   async function updateWeeklyFundConfig(nextConfig: WeeklyFundConfig) {
@@ -633,6 +663,72 @@ export function AdminPanel({
             </div>
           </div>
 
+          <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <Gift className="w-4 h-4 text-[#D97706]" />
+                  <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
+                    Tính năng Tặng thưởng (Bonus)
+                  </p>
+                </div>
+                <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] mt-0.5">
+                  Cho phép Admin &amp; Người giao việc thưởng nóng vào ví quỹ tuần.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={bonusRewardConfig.enabled}
+                onClick={() =>
+                  updateBonusRewardConfig({
+                    ...bonusRewardConfig,
+                    enabled: !bonusRewardConfig.enabled,
+                  })
+                }
+                className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${
+                  bonusRewardConfig.enabled ? 'bg-[#059669]' : 'bg-[#D1D5DB] dark:bg-[#475569]'
+                }`}
+              >
+                <span
+                  className={`block w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                    bonusRewardConfig.enabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {bonusRewardConfig.enabled && (
+              <div className="pt-2 border-t border-[#F3F4F6] dark:border-[#334155] space-y-1.5">
+                <label className="block text-[11px] font-semibold text-[#6B7280] dark:text-[#94A3B8]">
+                  Trần thưởng tối đa / lần cho Người giao việc (VNĐ)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={10000}
+                    value={maxBonusCapInput}
+                    onChange={(e) => setMaxBonusCapInput(e.target.value)}
+                    className="flex-1 h-10 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-xs tabular-nums"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateBonusRewardConfig({
+                        ...bonusRewardConfig,
+                        max_delegated_bonus: Math.max(0, Number(maxBonusCapInput || 0)),
+                      })
+                    }
+                    className="h-10 px-3 rounded-xl bg-[#111827] dark:bg-[#059669] text-white text-xs font-semibold shrink-0"
+                  >
+                    Lưu trần
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl divide-y divide-[#F3F4F6] dark:divide-[#334155]">
             {FEATURE_META.map((item) => {
               const on = featureFlags[item.key];
@@ -713,6 +809,9 @@ export function AdminPanel({
           members={members}
           assignedChores={assignedChores}
           currentVnDate={currentVnDate}
+          canAwardBonus={bonusRewardConfig.enabled}
+          currentUserId={currentUserId}
+          onAwardBonus={onAwardBonus}
           onRefresh={onRefresh}
         />
         </div>
@@ -1024,6 +1123,22 @@ export function AdminPanel({
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {bonusRewardConfig.enabled && m.id !== currentUserId && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onAwardBonus({
+                            recipientId: m.id,
+                            recipientName: m.display_name,
+                          })
+                        }
+                        title="Thưởng trực tiếp"
+                        className="h-10 px-2.5 rounded-xl bg-[#FFFBEB] dark:bg-[#451A03]/60 border border-[#FDE68A] dark:border-[#92400E] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold inline-flex items-center gap-1"
+                      >
+                        <Gift className="w-3.5 h-3.5" />
+                        Thưởng trực tiếp
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {

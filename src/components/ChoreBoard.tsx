@@ -188,6 +188,20 @@ export function ChoreBoard({
       ? Math.max(0, Math.min(100, Math.round((me.current_balance / me.weekly_allowance) * 100)))
       : 0;
 
+  const myBonusTotal = useMemo(
+    () =>
+      fundTransactions
+        .filter(
+          (tx) =>
+            tx.profile_id === me.id &&
+            (tx.tx_type === 'BONUS_REWARD' ||
+              tx.tx_type === 'bonus_reward' ||
+              tx.category === 'bonus_reward'),
+        )
+        .reduce((acc, tx) => acc + Math.max(0, tx.amount), 0),
+    [fundTransactions, me.id],
+  );
+
   async function respondSwap(swapId: string, action: 'accept' | 'cancel') {
     setBusySwapId(swapId);
     haptic(15);
@@ -262,6 +276,11 @@ export function ChoreBoard({
                         / {me.weekly_allowance.toLocaleString('vi-VN')}đ
                       </span>
                     </p>
+                    {myBonusTotal > 0 && (
+                      <p className="text-[11px] font-semibold text-[#D97706] dark:text-[#FCD34D] tabular-nums">
+                        Thưởng làm tốt: +{myBonusTotal.toLocaleString('vi-VN')}đ
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -483,11 +502,18 @@ export function ChoreBoard({
                       </div>
                     </div>
 
-                    {a.penalty_amount > 0 && (
-                      <span className="shrink-0 px-2 py-1 rounded-lg bg-[#FEF2F2] dark:bg-[#450A0A] text-[#DC2626] dark:text-[#FCA5A5] text-[11px] font-bold tabular-nums">
-                        Phạt -{a.penalty_amount.toLocaleString('vi-VN')}đ
-                      </span>
-                    )}
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {a.penalty_amount > 0 && (
+                        <span className="px-2 py-0.5 rounded-lg bg-[#FEF2F2] dark:bg-[#450A0A] text-[#DC2626] dark:text-[#FCA5A5] text-[11px] font-bold tabular-nums">
+                          Phạt -{a.penalty_amount.toLocaleString('vi-VN')}đ
+                        </span>
+                      )}
+                      {a.bonus_amount > 0 && (
+                        <span className="px-2 py-0.5 rounded-lg bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] text-[11px] font-bold tabular-nums">
+                          Thưởng +{a.bonus_amount.toLocaleString('vi-VN')}đ
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {isDone && a.completed_proof_url ? (
