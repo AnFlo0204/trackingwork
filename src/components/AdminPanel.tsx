@@ -35,8 +35,10 @@ import type {
   WeeklySettlementRow,
 } from '@/lib/types';
 import { formatIsoToVn } from '@/lib/time';
+import { signedFetch } from '@/lib/requestSigner';
 import { CHORE_ICON_OPTIONS, ChoreIcon } from './ChoreIcon';
 import { AssignTasksPanel } from './AssignTasksPanel';
+import { ProtectedImage } from './ProtectedImage';
 
 interface AdminPanelProps {
   chores: Chore[];
@@ -172,7 +174,7 @@ export function AdminPanel({
 
   async function toggleFeature(key: keyof FeatureFlags) {
     const nextFlags = { ...featureFlags, [key]: !featureFlags[key] };
-    const res = await fetch('/api/admin/settings', {
+    const res = await signedFetch('/api/admin/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ featureFlags: nextFlags }),
@@ -186,7 +188,7 @@ export function AdminPanel({
   }
 
   async function updateWeeklyFundConfig(nextConfig: WeeklyFundConfig) {
-    const res = await fetch('/api/admin/fund', {
+    const res = await signedFetch('/api/admin/fund', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'config', config: nextConfig }),
@@ -200,7 +202,7 @@ export function AdminPanel({
   }
 
   async function updatePartyFund(opts: { show_banner?: boolean; reset_balance?: boolean }) {
-    const res = await fetch('/api/admin/fund', {
+    const res = await signedFetch('/api/admin/fund', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'party_fund_config', ...opts }),
@@ -214,7 +216,7 @@ export function AdminPanel({
   async function handleCloseWeekSettlement() {
     setClosingWeek(true);
     try {
-      const res = await fetch('/api/admin/fund', {
+      const res = await signedFetch('/api/admin/fund', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'close_week_settlement' }),
@@ -268,7 +270,7 @@ export function AdminPanel({
         require_before_after: choreRequireBA,
         min_duration_minutes: choreRequireBA ? Number(choreMinDuration || 0) : 0,
       };
-      const res = await fetch('/api/admin/chores', {
+      const res = await signedFetch('/api/admin/chores', {
         method: editingChoreId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -287,7 +289,7 @@ export function AdminPanel({
   }
 
   async function moveChore(id: string, move: 'up' | 'down') {
-    await fetch('/api/admin/chores', {
+    await signedFetch('/api/admin/chores', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, move }),
@@ -296,7 +298,7 @@ export function AdminPanel({
   }
 
   async function deleteChore(id: string) {
-    await fetch(`/api/admin/chores?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await signedFetch(`/api/admin/chores?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     await onRefresh();
     notify('ok', 'Đã xóa công việc.');
   }
@@ -305,7 +307,7 @@ export function AdminPanel({
     e.preventDefault();
     setSavingMember(true);
     try {
-      const res = await fetch('/api/admin/members', {
+      const res = await signedFetch('/api/admin/members', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -333,7 +335,7 @@ export function AdminPanel({
   }
 
   async function toggleMemberActive(m: ProfilePublic) {
-    await fetch('/api/admin/members', {
+    await signedFetch('/api/admin/members', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: m.id, is_active: !m.is_active }),
@@ -343,7 +345,7 @@ export function AdminPanel({
   }
 
   async function toggleCanAssign(m: ProfilePublic) {
-    await fetch('/api/admin/members', {
+    await signedFetch('/api/admin/members', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: m.id, can_assign_tasks: !m.can_assign_tasks }),
@@ -359,7 +361,7 @@ export function AdminPanel({
 
   async function saveMemberAllowance(m: ProfilePublic) {
     const val = Number(allowanceEdits[m.id] ?? 0);
-    const res = await fetch('/api/admin/members', {
+    const res = await signedFetch('/api/admin/members', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: m.id, weekly_allowance: val }),
@@ -371,7 +373,7 @@ export function AdminPanel({
   }
 
   async function resetMemberBalanceNow(m: ProfilePublic) {
-    const res = await fetch('/api/admin/fund', {
+    const res = await signedFetch('/api/admin/fund', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'reset_member', profile_id: m.id }),
@@ -383,7 +385,7 @@ export function AdminPanel({
   }
 
   async function submitResetPin(id: string) {
-    const res = await fetch('/api/admin/members', {
+    const res = await signedFetch('/api/admin/members', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, pin: resetPinVal.trim() }),
@@ -399,7 +401,7 @@ export function AdminPanel({
   }
 
   async function deleteMember(id: string) {
-    await fetch(`/api/admin/members?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await signedFetch(`/api/admin/members?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     await onRefresh();
     notify('ok', 'Đã xóa thành viên.');
   }
@@ -411,7 +413,7 @@ export function AdminPanel({
     setSavingAdj(true);
     try {
       const signedAmount = adjType === 'refund' ? raw : -raw;
-      const res = await fetch('/api/admin/fund', {
+      const res = await signedFetch('/api/admin/fund', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -436,7 +438,7 @@ export function AdminPanel({
 
   async function saveRetentionDays(e: FormEvent) {
     e.preventDefault();
-    const res = await fetch('/api/admin/settings', {
+    const res = await signedFetch('/api/admin/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ retentionDays: Number(retInput) }),
@@ -453,7 +455,7 @@ export function AdminPanel({
   async function triggerManualCleanup() {
     setCleaningUp(true);
     try {
-      const res = await fetch('/api/admin/cleanup', { method: 'POST' });
+      const res = await signedFetch('/api/admin/cleanup', { method: 'POST' });
       const data = await res.json();
       await onRefresh();
       notify(
@@ -1156,11 +1158,10 @@ export function AdminPanel({
                     onClick={() => onInspectPhoto(log)}
                     className="flex items-center gap-2.5 w-full text-left"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={log.proof_url}
+                    <ProtectedImage
+                      src={log.thumb_url || log.proof_url}
                       alt={log.chore_title}
-                      className="w-11 h-11 rounded-lg object-cover shrink-0"
+                      className="w-11 h-11 rounded-lg shrink-0"
                     />
                     <div className="min-w-0">
                       <p className="text-xs font-bold truncate">
@@ -1429,11 +1430,10 @@ export function AdminPanel({
                   onClick={() => onInspectPhoto(log)}
                   className="flex items-center gap-2.5 min-w-0 text-left flex-1"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={log.proof_url}
+                  <ProtectedImage
+                    src={log.thumb_url || log.proof_url}
                     alt={log.chore_title}
-                    className="w-10 h-10 rounded-lg object-cover border border-[#E5E7EB] dark:border-[#334155] shrink-0"
+                    className="w-10 h-10 rounded-lg border border-[#E5E7EB] dark:border-[#334155] shrink-0"
                   />
                   <div className="min-w-0">
                     <p className="text-xs font-bold truncate">

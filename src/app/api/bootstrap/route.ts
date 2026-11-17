@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedProfile } from '@/lib/auth';
+import { getAuthenticatedSession } from '@/lib/auth';
 import {
   buildAssignedChoreItems,
   buildWeeklySettlementRows,
@@ -26,10 +26,11 @@ export const dynamic = 'force-dynamic';
 const PAGE_SIZE = 20;
 
 export async function GET() {
-  const me = await getAuthenticatedProfile();
-  if (!me) {
+  const session = await getAuthenticatedSession();
+  if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const me = session.profile;
 
   try {
     const serverTime = await fetchAuthoritativeServerTime();
@@ -337,9 +338,11 @@ export async function GET() {
       retentionDays,
       lastCleanupAt,
       serverNowIso: serverTime.isoUtc,
+      serverNowMs: Date.now(),
       serverVnFormatted: serverTime.vnFormatted,
       currentVnDate: getVnDateParts(serverNowMs).dateStr,
       currentPeriodKey,
+      signingKey: session.signingKey,
     });
   } catch (err) {
     console.error('Bootstrap error:', err);

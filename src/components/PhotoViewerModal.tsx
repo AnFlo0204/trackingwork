@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { ChoreLogItem } from '@/lib/types';
 import { formatIsoToVn } from '@/lib/time';
+import { ProtectedImage } from './ProtectedImage';
 
 interface PhotoViewerModalProps {
   log: ChoreLogItem | null;
@@ -239,42 +240,42 @@ export function PhotoViewerModal({
               className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-h-full overflow-y-auto"
             >
               <div className="relative rounded-xl overflow-hidden border border-amber-500/50 bg-black flex items-center justify-center">
-                <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-amber-600 text-white text-[10px] font-bold">
+                <span className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded bg-amber-600 text-white text-[10px] font-bold">
                   TRƯỚC KHI LÀM
                 </span>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <ProtectedImage
                   src={log.before_proof_url || ''}
                   alt="Ảnh trước khi làm"
-                  className="w-full max-h-[34vh] md:max-h-[55vh] object-contain mx-auto"
+                  objectFit="contain"
+                  className="w-full h-[34vh] md:h-[52vh]"
                 />
               </div>
               <div className="relative rounded-xl overflow-hidden border border-emerald-500/50 bg-black flex items-center justify-center">
-                <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold">
+                <span className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold">
                   SAU KHI LÀM
                 </span>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <ProtectedImage
                   src={log.proof_url}
                   alt="Ảnh sau khi làm"
-                  className="w-full max-h-[34vh] md:max-h-[55vh] object-contain mx-auto"
+                  objectFit="contain"
+                  className="w-full h-[34vh] md:h-[52vh]"
                 />
               </div>
             </div>
           ) : (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
+            <ProtectedImage
               src={
                 viewMode === 'before' && log.before_proof_url
                   ? log.before_proof_url
                   : log.proof_url
               }
               alt={`Ảnh xác thực ${log.chore_title}`}
+              objectFit="contain"
               style={{
                 transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
                 transition: pinchStartDist.current ? 'none' : 'transform 150ms ease-out',
               }}
-              className="max-h-[60vh] md:max-h-[62vh] max-w-full object-contain rounded-lg"
+              className="w-full h-[58vh] md:h-[60vh] rounded-lg"
             />
           )}
         </div>

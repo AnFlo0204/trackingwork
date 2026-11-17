@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { ArrowRightLeft, Coins, X } from 'lucide-react';
 import type { AssignedChoreItem, ProfilePublic } from '@/lib/types';
 import { haptic } from '@/lib/offlineQueue';
+import { signedFetch } from '@/lib/requestSigner';
 
 interface ShiftSwapSheetProps {
   assignment: AssignedChoreItem | null;
@@ -40,7 +41,7 @@ export function ShiftSwapSheet({
     haptic(15);
 
     try {
-      const res = await fetch('/api/swaps', {
+      const res = await signedFetch('/api/swaps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -15,6 +15,7 @@ const ACTION_FILTERS = [
   { key: 'PHOTO', label: 'Ảnh & Hủy lượt' },
   { key: 'FUND', label: 'Quỹ tuần' },
   { key: 'CHORE', label: 'Việc nhà' },
+  { key: 'SECURITY', label: 'Bảo mật' },
   { key: 'SYSTEM', label: 'Quyền & Cài đặt' },
 ] as const;
 
@@ -22,6 +23,14 @@ type FilterGroup = (typeof ACTION_FILTERS)[number]['key'];
 
 function formatActionBadge(actionType: string): { label: string; tone: string } {
   switch (actionType) {
+    case 'DEVTOOLS_TAMPER_ATTEMPT':
+    case 'HMAC_SPOOF_ATTEMPT':
+    case 'BINARY_TAMPER_ATTEMPT':
+    case 'AUTH_BRUTE_FORCE_LOCK':
+      return {
+        label: 'Cảnh báo bảo mật',
+        tone: 'bg-[#FEF2F2] dark:bg-[#450A0A] text-[#B91C1C] dark:text-[#FCA5A5]',
+      };
     case 'REJECT_PROOF':
     case 'DELETE_PHOTO':
       return {
@@ -99,6 +108,17 @@ export function AuditLogView({ initialItems, initialNextCursor }: AuditLogViewPr
         return false;
       }
       if (group === 'CHORE' && !['DELETE_CHORE', 'EDIT_CHORE'].includes(item.action_type)) {
+        return false;
+      }
+      if (
+        group === 'SECURITY' &&
+        ![
+          'DEVTOOLS_TAMPER_ATTEMPT',
+          'HMAC_SPOOF_ATTEMPT',
+          'BINARY_TAMPER_ATTEMPT',
+          'AUTH_BRUTE_FORCE_LOCK',
+        ].includes(item.action_type)
+      ) {
         return false;
       }
       if (group === 'SYSTEM' && !['CHANGE_ROLE', 'CHANGE_SETTINGS', 'MANUAL_CLEANUP'].includes(item.action_type)) {

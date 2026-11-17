@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { getSupabaseBrowser } from '@/lib/supabaseClient';
 import { flushOfflineProofQueue, haptic, listOfflineProofs } from '@/lib/offlineQueue';
+import { setInMemorySigningKey, signedFetch } from '@/lib/requestSigner';
 import type {
   AssignedChoreItem,
   BootstrapPayload,
@@ -52,7 +53,11 @@ async function bootstrapFetcher(url: string): Promise<BootstrapPayload | null> {
   if (!res.ok) {
     throw new Error('Không thể tải dữ liệu');
   }
-  return (await res.json()) as BootstrapPayload;
+  const payload = (await res.json()) as BootstrapPayload;
+  if (payload?.signingKey) {
+    setInMemorySigningKey(payload.signingKey, payload.serverNowMs);
+  }
+  return payload;
 }
 
 export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
@@ -240,7 +245,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
         false,
       );
     }
-    await fetch('/api/notifications', {
+    await signedFetch('/api/notifications', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -259,6 +264,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
+    setInMemorySigningKey(null);
     setAuthed(false);
     await mutate(null, false);
   }
@@ -267,7 +273,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     log: ChoreLogItem,
     action: 'reject' | 'rework_half_penalty' = 'reject',
   ) {
-    const res = await fetch('/api/admin/moderate', {
+    const res = await signedFetch('/api/admin/moderate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ logId: log.id, action }),
@@ -298,7 +304,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
       });
       await mutate({ ...data, logs: updatedLogs }, false);
     }
-    const res = await fetch('/api/logs/react', {
+    const res = await signedFetch('/api/logs/react', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ logId: log.id, reaction }),
@@ -864,6 +870,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
       {/* Modals & Drawers */}
       <CameraCaptureSheet
         target={captureTarget}
+        userId={data.me.id}
         memberName={data.me.display_name}
         onClose={() => setCaptureTarget(null)}
         onCompleted={async (offlineSaved) => {

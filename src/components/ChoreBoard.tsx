@@ -32,7 +32,9 @@ import type {
 } from '@/lib/types';
 import { formatRelativeVi, getVnPeriodBounds } from '@/lib/time';
 import { haptic } from '@/lib/offlineQueue';
+import { signedFetch } from '@/lib/requestSigner';
 import { ChoreIcon, getInitials } from './ChoreIcon';
+import { ProtectedImage } from './ProtectedImage';
 import type { CaptureTarget } from './CameraCaptureSheet';
 
 interface ChoreBoardProps {
@@ -190,7 +192,7 @@ export function ChoreBoard({
     setBusySwapId(swapId);
     haptic(15);
     try {
-      await fetch('/api/swaps', {
+      await signedFetch('/api/swaps', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ swapId, action }),
@@ -203,7 +205,7 @@ export function ChoreBoard({
 
   async function cancelSession(sessionId: string) {
     haptic(15);
-    await fetch(`/api/chores/start?sessionId=${encodeURIComponent(sessionId)}`, {
+    await signedFetch(`/api/chores/start?sessionId=${encodeURIComponent(sessionId)}`, {
       method: 'DELETE',
     });
     await onRefresh();
@@ -729,16 +731,13 @@ export function ChoreBoard({
                         aria-label={`Xem ảnh ${chore.title}`}
                         className="relative w-10 h-10 rounded-lg overflow-hidden border border-[#E5E7EB] dark:border-[#334155] shrink-0 active:scale-95 transition"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                        <ProtectedImage
                           src={latest.thumb_url || latest.proof_url}
                           alt="Ảnh xác thực"
-                          loading="lazy"
-                          decoding="async"
-                          className="w-full h-full object-cover"
+                          className="w-full h-full"
                         />
                         {latest.before_proof_url && (
-                          <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[8px] font-bold text-white text-center leading-tight">
+                          <span className="absolute bottom-0 inset-x-0 z-20 bg-black/70 text-[8px] font-bold text-white text-center leading-tight">
                             2 ẢNH
                           </span>
                         )}

@@ -217,9 +217,11 @@ export interface BootstrapPayload {
   retentionDays: number;
   lastCleanupAt: string | null;
   serverNowIso: string;
+  serverNowMs?: number;
   serverVnFormatted: string;
   currentVnDate: string;
   currentPeriodKey: string;
+  signingKey?: string;
 }
 
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {

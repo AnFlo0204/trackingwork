@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { addToSharedPartyFund } from '@/lib/allowanceEngine';
 import { recordAuditLog } from '@/lib/audit';
-import { getAuthenticatedProfile } from '@/lib/auth';
+import { getAuthenticatedSession } from '@/lib/auth';
+import { verifySignedRequest } from '@/lib/requestIntegrity';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchAuthoritativeServerTime, formatIsoToVn } from '@/lib/time';
 
@@ -13,13 +14,17 @@ function extractPath(url: string | null | undefined): string {
 }
 
 export async function POST(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me || me.role !== 'admin') {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me || me.role !== 'admin') {
     return NextResponse.json({ error: 'Chỉ Admin mới có quyền duyệt hủy lượt.' }, { status: 403 });
   }
 
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
+
   try {
-    const body = await req.json();
+    const body = verified.rawText ? JSON.parse(verified.rawText) : {};
     const logId = String(body?.logId || '').trim();
     const action = body?.action === 'rework_half_penalty' ? 'rework_half_penalty' : 'reject';
 

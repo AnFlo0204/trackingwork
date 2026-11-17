@@ -11,7 +11,11 @@ export type AuditActionType =
   | 'CHANGE_ROLE'
   | 'MANUAL_CLEANUP'
   | 'CLOSE_WEEK'
-  | 'RESET_PARTY_FUND';
+  | 'RESET_PARTY_FUND'
+  | 'DEVTOOLS_TAMPER_ATTEMPT'
+  | 'HMAC_SPOOF_ATTEMPT'
+  | 'BINARY_TAMPER_ATTEMPT'
+  | 'AUTH_BRUTE_FORCE_LOCK';
 
 export async function recordAuditLog(params: {
   actorName: string;

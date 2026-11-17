@@ -1,15 +1,20 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedProfile } from '@/lib/auth';
+import { getAuthenticatedSession } from '@/lib/auth';
+import { verifySignedRequest } from '@/lib/requestIntegrity';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function POST(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me || (me.role !== 'admin' && !me.can_assign_tasks)) {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me || (me.role !== 'admin' && !me.can_assign_tasks)) {
     return NextResponse.json({ error: 'Bạn chưa được cấp quyền giao việc.' }, { status: 403 });
   }
 
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
+
   try {
-    const body = await req.json();
+    const body = verified.rawText ? JSON.parse(verified.rawText) : {};
     const choreId = String(body?.chore_id || '').trim();
     const assigneeId = String(body?.assignee_id || '').trim();
     const scheduleType = ['daily', 'weekly_days', 'once'].includes(body?.schedule_type)
@@ -67,13 +72,17 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me || (me.role !== 'admin' && !me.can_assign_tasks)) {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me || (me.role !== 'admin' && !me.can_assign_tasks)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
+
   try {
-    const body = await req.json();
+    const body = verified.rawText ? JSON.parse(verified.rawText) : {};
     const id = String(body?.id || '').trim();
     if (!id) {
       return NextResponse.json({ error: 'Thiếu ID nhiệm vụ.' }, { status: 400 });
@@ -103,10 +112,14 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me || (me.role !== 'admin' && !me.can_assign_tasks)) {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me || (me.role !== 'admin' && !me.can_assign_tasks)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
 
   try {
     const { searchParams } = new URL(req.url);

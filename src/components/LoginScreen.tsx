@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { CheckSquare, Eye, EyeOff, Lock, Moon, Sun, User } from 'lucide-react';
+import { setInMemorySigningKey } from '@/lib/requestSigner';
 import type { ProfilePublic } from '@/lib/types';
 
 interface LoginScreenProps {
@@ -36,6 +37,9 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
       if (!res.ok) {
         setError(data?.error || 'Đăng nhập thất bại.');
         return;
+      }
+      if (data?.signingKey) {
+        setInMemorySigningKey(data.signingKey, data.serverNowMs);
       }
       onSuccess(data.user);
     } catch {

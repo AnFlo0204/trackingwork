@@ -16,6 +16,7 @@ import { formatIsoToVn } from '@/lib/time';
 import { haptic } from '@/lib/offlineQueue';
 import { getInitials } from './ChoreIcon';
 import { AuditLogView } from './AuditLogView';
+import { ProtectedImage } from './ProtectedImage';
 
 interface ActivityHistoryProps {
   logs: ChoreLogItem[];
@@ -266,41 +267,32 @@ export function ActivityHistory({
                           {log.before_proof_url ? (
                             <div className="flex gap-1">
                               <div className="relative w-12 h-14 rounded-lg overflow-hidden border border-[#F59E0B]">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
+                                <ProtectedImage
                                   src={log.before_proof_url}
                                   alt="Trước"
-                                  loading="lazy"
-                                  decoding="async"
-                                  className="w-full h-full object-cover"
+                                  className="w-full h-full"
                                 />
-                                <span className="absolute bottom-0 inset-x-0 bg-black/75 text-[8px] font-bold text-amber-300 text-center">
+                                <span className="absolute bottom-0 inset-x-0 z-20 bg-black/75 text-[8px] font-bold text-amber-300 text-center">
                                   Trước
                                 </span>
                               </div>
                               <div className="relative w-12 h-14 rounded-lg overflow-hidden border border-[#059669]">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
+                                <ProtectedImage
                                   src={thumbSrc}
                                   alt="Sau"
-                                  loading="lazy"
-                                  decoding="async"
-                                  className="w-full h-full object-cover"
+                                  className="w-full h-full"
                                 />
-                                <span className="absolute bottom-0 inset-x-0 bg-black/75 text-[8px] font-bold text-emerald-300 text-center">
+                                <span className="absolute bottom-0 inset-x-0 z-20 bg-black/75 text-[8px] font-bold text-emerald-300 text-center">
                                   Sau
                                 </span>
                               </div>
                             </div>
                           ) : (
                             <div className="w-14 h-14 rounded-xl overflow-hidden border border-[#E5E7EB] dark:border-[#334155]">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
+                              <ProtectedImage
                                 src={thumbSrc}
                                 alt={`Ảnh ${log.chore_title}`}
-                                loading="lazy"
-                                decoding="async"
-                                className="w-full h-full object-cover"
+                                className="w-full h-full"
                               />
                             </div>
                           )}

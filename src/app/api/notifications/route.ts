@@ -1,15 +1,20 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedProfile } from '@/lib/auth';
+import { getAuthenticatedSession } from '@/lib/auth';
+import { verifySignedRequest } from '@/lib/requestIntegrity';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function POST(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me) {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
+
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = verified.rawText ? JSON.parse(verified.rawText) : {};
     const supabase = getSupabaseAdmin();
 
     if (body?.id) {

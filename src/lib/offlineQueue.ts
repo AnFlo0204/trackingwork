@@ -1,3 +1,5 @@
+import { signedFetch } from './requestSigner';
+
 export function haptic(ms = 15): void {
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
@@ -97,8 +99,8 @@ export async function flushOfflineProofQueue(): Promise<{ synced: number; remain
 
   for (const item of items) {
     try {
-      // Request a fresh single-use 2-minute upload token before flushing
-      const tokRes = await fetch('/api/upload-token', {
+      // Request a fresh single-use 2-minute upload token with HMAC signature
+      const tokRes = await signedFetch('/api/upload-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ choreId: item.choreId, phase: item.phase || 'single' }),
@@ -118,7 +120,7 @@ export async function flushOfflineProofQueue(): Promise<{ synced: number; remain
         fd.append('thumb', item.thumbBlob, `thumb.${ext}`);
       }
 
-      const res = await fetch(item.endpoint, { method: 'POST', body: fd });
+      const res = await signedFetch(item.endpoint, { method: 'POST', body: fd });
       if (res.ok || (res.status >= 400 && res.status < 500)) {
         await removeOfflineProof(item.id);
         if (res.ok) synced += 1;

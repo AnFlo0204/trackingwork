@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { getAuthenticatedProfile } from '@/lib/auth';
+import { recordAuditLog } from '@/lib/audit';
+import { getAuthenticatedSession } from '@/lib/auth';
+import { extractAndVerifyProofBinary, verifySignedRequest } from '@/lib/requestIntegrity';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchAuthoritativeServerTime, getVnDateParts } from '@/lib/time';
 
@@ -8,13 +10,20 @@ const MAX_UPLOAD_BYTES = 300 * 1024;
 const ALLOWED_MIMES = new Set(['image/webp', 'image/jpeg']);
 
 export async function POST(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me) {
+  const authSession = await getAuthenticatedSession();
+  if (!authSession) {
     return NextResponse.json({ error: 'Phiên đăng nhập hết hạn.' }, { status: 401 });
   }
+  const me = authSession.profile;
+
+  const verified = await verifySignedRequest(req, authSession);
+  if (!verified.ok) return verified.response;
 
   try {
-    const formData = await req.formData();
+    const formData = verified.formData;
+    if (!formData) {
+      return NextResponse.json({ error: 'Dữ liệu FormData không hợp lệ.' }, { status: 400 });
+    }
     const choreId = String(formData.get('choreId') || '').trim();
     const uploadToken = String(formData.get('uploadToken') || '').trim();
     const assignedChoreId = String(formData.get('assignedChoreId') || '').trim() || null;
@@ -93,6 +102,21 @@ export async function POST(req: Request) {
       .eq('status', 'in_progress');
 
     const buffer = Buffer.from(await photo.arrayBuffer());
+    const binCheck = extractAndVerifyProofBinary(buffer, mimeType, {
+      userId: me.id,
+      choreId,
+      signingKey: authSession.signingKey,
+    });
+    if (!binCheck.ok) {
+      await recordAuditLog({
+        actorName: me.display_name,
+        actionType: 'BINARY_TAMPER_ATTEMPT',
+        targetSummary: `Từ chối ảnh Trước khi làm [${chore.title}]: ${binCheck.reason}`,
+        refId: chore.id,
+      });
+      return NextResponse.json({ error: `Ảnh xác thực không hợp lệ: ${binCheck.reason}` }, { status: 403 });
+    }
+
     const storagePath = `before/${chore.id}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
 
     const { error: uploadErr } = await supabase.storage
@@ -139,10 +163,14 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me) {
+  const authSession = await getAuthenticatedSession();
+  if (!authSession) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const me = authSession.profile;
+
+  const verified = await verifySignedRequest(req, authSession);
+  if (!verified.ok) return verified.response;
 
   const { searchParams } = new URL(req.url);
   const sessionId = searchParams.get('sessionId');

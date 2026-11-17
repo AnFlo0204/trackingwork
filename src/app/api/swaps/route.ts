@@ -1,16 +1,21 @@
 import { NextResponse } from 'next/server';
-import { getAuthenticatedProfile } from '@/lib/auth';
+import { getAuthenticatedSession } from '@/lib/auth';
+import { verifySignedRequest } from '@/lib/requestIntegrity';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchAuthoritativeServerTime } from '@/lib/time';
 
 export async function POST(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me) {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
+
   try {
-    const body = await req.json();
+    const body = verified.rawText ? JSON.parse(verified.rawText) : {};
     const assignedChoreId = String(body?.assigned_chore_id || '').trim();
     const cycleKey = String(body?.cycle_key || '').trim();
     const targetId = body?.target_id ? String(body.target_id).trim() : null;
@@ -109,13 +114,17 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me) {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
+
   try {
-    const body = await req.json();
+    const body = verified.rawText ? JSON.parse(verified.rawText) : {};
     const swapId = String(body?.swapId || '').trim();
     const action = body?.action === 'cancel' ? 'cancel' : 'accept';
 

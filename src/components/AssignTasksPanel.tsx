@@ -9,6 +9,7 @@ import type {
   ProfilePublic,
 } from '@/lib/types';
 import { ChoreIcon } from './ChoreIcon';
+import { signedFetch } from '@/lib/requestSigner';
 
 interface AssignTasksPanelProps {
   chores: Chore[];
@@ -93,7 +94,7 @@ export function AssignTasksPanel({
 
     setSaving(true);
     try {
-      const res = await fetch('/api/assignments', {
+      const res = await signedFetch('/api/assignments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -119,7 +120,7 @@ export function AssignTasksPanel({
   }
 
   async function toggleActive(item: AssignedChoreItem) {
-    await fetch('/api/assignments', {
+    await signedFetch('/api/assignments', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: item.id, is_active: !item.is_active }),
@@ -128,7 +129,7 @@ export function AssignTasksPanel({
   }
 
   async function removeAssignment(id: string) {
-    await fetch(`/api/assignments?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await signedFetch(`/api/assignments?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     await onRefresh();
     showMsg('ok', 'Đã xóa lịch giao việc.');
   }

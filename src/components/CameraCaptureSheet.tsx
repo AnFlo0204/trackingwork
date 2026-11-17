@@ -4,7 +4,10 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'reac
 import { Camera, Check, Laptop, RefreshCw, ShieldCheck, Video, WifiOff, X } from 'lucide-react';
 import type { AssignedChoreItem, Chore } from '@/lib/types';
 import { enqueueOfflineProof, haptic } from '@/lib/offlineQueue';
+import { signedFetch } from '@/lib/requestSigner';
 import { createWatermarkedProof, type WatermarkedPhotoResult } from '@/lib/watermarker';
+import { ProtectedImage } from './ProtectedImage';
+import { useSecurityGuard } from './SecurityShield';
 
 export interface CaptureTarget {
   chore: Chore;
@@ -15,6 +18,7 @@ export interface CaptureTarget {
 
 interface CameraCaptureSheetProps {
   target: CaptureTarget | null;
+  userId: string;
   memberName: string;
   onClose: () => void;
   onCompleted: (offlineSaved?: boolean) => Promise<void>;
@@ -32,10 +36,12 @@ function detectDesktopDevice(): boolean {
 
 export function CameraCaptureSheet({
   target,
+  userId,
   memberName,
   onClose,
   onCompleted,
 }: CameraCaptureSheetProps) {
+  const { tamperDetected } = useSecurityGuard();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -110,7 +116,7 @@ export function CameraCaptureSheet({
     stopStream();
 
     // On Laptop / Desktop PC, automatically open the Live Webcam Modal instead of file picker
-    if (chore && desktop) {
+    if (chore && desktop && !tamperDetected) {
       void startLiveCamera(true);
     }
 
@@ -118,7 +124,7 @@ export function CameraCaptureSheet({
       stopStream();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chore?.id, assigned?.id, phase, sessionId]);
+  }, [chore?.id, assigned?.id, phase, sessionId, tamperDetected]);
 
   useEffect(() => {
     if (mode === 'webrtc' && videoRef.current && streamRef.current) {
@@ -140,7 +146,7 @@ export function CameraCaptureSheet({
   }
 
   async function processCapturedBlob(blob: Blob) {
-    if (!chore) return;
+    if (!chore || tamperDetected) return;
     setMode('processing');
     setError(null);
     stopStream();
@@ -148,10 +154,11 @@ export function CameraCaptureSheet({
 
     try {
       let vnFormatted = formatLocalFallbackVn();
+      let isoUtc = new Date().toISOString();
       let token: string | null = null;
 
       try {
-        const tokRes = await fetch('/api/upload-token', {
+        const tokRes = await signedFetch('/api/upload-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ choreId: chore.id, phase }),
@@ -159,6 +166,7 @@ export function CameraCaptureSheet({
         if (tokRes.ok) {
           const tokData = await tokRes.json();
           if (tokData?.vnFormatted) vnFormatted = tokData.vnFormatted;
+          if (tokData?.isoUtc) isoUtc = tokData.isoUtc;
           if (tokData?.token) token = tokData.token;
         }
       } catch {
@@ -168,10 +176,15 @@ export function CameraCaptureSheet({
       setUploadToken(token);
       setServerStamp(vnFormatted);
 
+      const stegoNonce = token || `offline-${Date.now()}`;
       const result = await createWatermarkedProof(blob, {
+        userId,
+        choreId: chore.id,
+        nonce: stegoNonce,
         memberName,
         choreTitle: assigned ? `${chore.title} (Được giao)` : chore.title,
         serverTimeFormatted: vnFormatted,
+        serverIsoTimestamp: isoUtc,
         phase,
       });
 
@@ -224,7 +237,7 @@ export function CameraCaptureSheet({
   }
 
   async function handleSubmitProof() {
-    if (!chore || !watermarked) return;
+    if (!chore || !watermarked || tamperDetected) return;
     setSubmitting(true);
     setError(null);
     haptic(15);
@@ -234,7 +247,7 @@ export function CameraCaptureSheet({
     try {
       let activeToken = uploadToken;
       if (!activeToken) {
-        const tokRes = await fetch('/api/upload-token', {
+        const tokRes = await signedFetch('/api/upload-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ choreId: chore.id, phase }),
@@ -267,7 +280,7 @@ export function CameraCaptureSheet({
         formData.append('thumb', watermarked.thumbBlob, `thumb.${ext}`);
       }
 
-      const res = await fetch(endpoint, {
+      const res = await signedFetch(endpoint, {
         method: 'POST',
         body: formData,
       });
@@ -479,11 +492,11 @@ export function CameraCaptureSheet({
         {mode === 'preview' && watermarked && (
           <div className="space-y-3">
             <div className="overflow-hidden rounded-2xl border border-[#E5E7EB] dark:border-[#334155] bg-black">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <ProtectedImage
                 src={watermarked.previewUrl}
                 alt="Ảnh đã đóng dấu"
-                className="w-full max-h-[46vh] object-contain mx-auto"
+                objectFit="contain"
+                className="w-full h-[38vh] mx-auto"
               />
             </div>
 

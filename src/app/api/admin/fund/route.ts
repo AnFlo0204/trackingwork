@@ -1,18 +1,23 @@
 import { NextResponse } from 'next/server';
 import { runWeeklySettlementAndDeductions } from '@/lib/allowanceEngine';
 import { recordAuditLog } from '@/lib/audit';
-import { getAuthenticatedProfile } from '@/lib/auth';
+import { getAuthenticatedSession } from '@/lib/auth';
+import { verifySignedRequest } from '@/lib/requestIntegrity';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { fetchAuthoritativeServerTime } from '@/lib/time';
 
 export async function POST(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me || me.role !== 'admin') {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me || me.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
+
   try {
-    const body = await req.json();
+    const body = verified.rawText ? JSON.parse(verified.rawText) : {};
     const supabase = getSupabaseAdmin();
 
     if (body?.action === 'config') {

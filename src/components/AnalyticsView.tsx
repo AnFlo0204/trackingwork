@@ -22,6 +22,7 @@ import type {
   WeeklySettlementRow,
 } from '@/lib/types';
 import { formatIsoToVn, getVnPeriodBounds } from '@/lib/time';
+import { signedFetch } from '@/lib/requestSigner';
 import { getInitials } from './ChoreIcon';
 
 interface AnalyticsViewProps {
@@ -166,7 +167,7 @@ export function AnalyticsView({
     if (!penProfileId || !penReason.trim()) return;
     setSubmittingPenalty(true);
     try {
-      const res = await fetch('/api/admin/penalties', {
+      const res = await signedFetch('/api/admin/penalties', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -187,7 +188,7 @@ export function AnalyticsView({
   }
 
   async function togglePenaltyPaid(item: PenaltyItem) {
-    await fetch('/api/admin/penalties', {
+    await signedFetch('/api/admin/penalties', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -199,7 +200,7 @@ export function AnalyticsView({
   }
 
   async function deletePenalty(id: string) {
-    await fetch(`/api/admin/penalties?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await signedFetch(`/api/admin/penalties?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     await onRefresh();
   }
 

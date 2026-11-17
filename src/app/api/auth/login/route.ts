@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import { recordAuditLog } from '@/lib/audit';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { createSessionToken, getSessionCookieOptions, SESSION_COOKIE_NAME } from '@/lib/auth';
 
@@ -84,6 +85,12 @@ export async function POST(req: Request) {
         .eq('id', matched.id);
 
       if (shouldLock) {
+        await recordAuditLog({
+          actorName: matched.display_name || matched.username,
+          actionType: 'AUTH_BRUTE_FORCE_LOCK',
+          targetSummary: `Khóa tài khoản "@${matched.username}" 15 phút sau 5 lần nhập sai PIN/mật khẩu`,
+          refId: matched.id,
+        });
         return NextResponse.json(
           {
             error: 'Bạn đã nhập sai 5 lần liên tiếp. Tài khoản bị khóa trong 15 phút.',
@@ -116,8 +123,10 @@ export async function POST(req: Request) {
     }
 
     const role = matched.role === 'admin' ? 'admin' : 'member';
-    const token = createSessionToken(matched.id, role);
+    const { token, signingKey } = createSessionToken(matched.id, role);
     const res = NextResponse.json({
+      signingKey,
+      serverNowMs: Date.now(),
       user: {
         id: matched.id,
         username: matched.username,

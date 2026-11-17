@@ -1,16 +1,21 @@
 import { NextResponse } from 'next/server';
 import { recordAuditLog } from '@/lib/audit';
-import { getAuthenticatedProfile } from '@/lib/auth';
+import { getAuthenticatedSession } from '@/lib/auth';
+import { verifySignedRequest } from '@/lib/requestIntegrity';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
 
 export async function POST(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me || me.role !== 'admin') {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me || me.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
+
   try {
-    const body = await req.json();
+    const body = verified.rawText ? JSON.parse(verified.rawText) : {};
     const title = String(body?.title || '').trim();
     if (!title) {
       return NextResponse.json({ error: 'Vui lòng nhập tên công việc.' }, { status: 400 });
@@ -67,13 +72,17 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me || me.role !== 'admin') {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me || me.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
+
   try {
-    const body = await req.json();
+    const body = verified.rawText ? JSON.parse(verified.rawText) : {};
     const id = String(body?.id || '').trim();
     if (!id) {
       return NextResponse.json({ error: 'Thiếu ID công việc.' }, { status: 400 });
@@ -155,10 +164,14 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const me = await getAuthenticatedProfile();
-  if (!me || me.role !== 'admin') {
+  const session = await getAuthenticatedSession();
+  const me = session?.profile;
+  if (!session || !me || me.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
+
+  const verified = await verifySignedRequest(req, session);
+  if (!verified.ok) return verified.response;
 
   try {
     const { searchParams } = new URL(req.url);

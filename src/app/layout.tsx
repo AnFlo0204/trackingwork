@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { SecurityShield } from '@/components/SecurityShield';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -36,7 +37,7 @@ export default function RootLayout({
   return (
     <html lang="vi" suppressHydrationWarning>
       <body className="font-sans antialiased bg-[#E5E7EB] dark:bg-[#090D16] text-[#111827] dark:text-[#F8FAFC] min-h-screen">
-        {children}
+        <SecurityShield>{children}</SecurityShield>
       </body>
     </html>
   );
