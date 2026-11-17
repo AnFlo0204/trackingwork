@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   BarChart3,
   CheckSquare,
+  ClipboardList,
   History,
   LogOut,
   Moon,
@@ -12,16 +13,24 @@ import {
   Sun,
 } from 'lucide-react';
 import { getSupabaseBrowser } from '@/lib/supabaseClient';
-import type { BootstrapPayload, Chore, ChoreLogItem, ProfilePublic } from '@/lib/types';
+import type {
+  AssignedChoreItem,
+  BootstrapPayload,
+  Chore,
+  ChoreLogItem,
+  ProfilePublic,
+} from '@/lib/types';
 import { LoginScreen } from './LoginScreen';
 import { ChoreBoard } from './ChoreBoard';
 import { ActivityHistory } from './ActivityHistory';
 import { AnalyticsView } from './AnalyticsView';
 import { AdminPanel } from './AdminPanel';
-import { CameraCaptureSheet } from './CameraCaptureSheet';
+import { AssignTasksPanel } from './AssignTasksPanel';
+import { CameraCaptureSheet, type CaptureTarget } from './CameraCaptureSheet';
 import { PhotoViewerModal } from './PhotoViewerModal';
+import { WeeklyWalletDrawer } from './WeeklyWalletDrawer';
 
-type TabKey = 'chores' | 'history' | 'stats' | 'admin';
+type TabKey = 'chores' | 'history' | 'stats' | 'assign' | 'admin';
 
 export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   const [darkMode, setDarkMode] = useState(false);
@@ -31,8 +40,9 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<TabKey>('chores');
 
-  const [capturingChore, setCapturingChore] = useState<Chore | null>(null);
+  const [captureTarget, setCaptureTarget] = useState<CaptureTarget | null>(null);
   const [inspectingLog, setInspectingLog] = useState<ChoreLogItem | null>(null);
+  const [walletOpen, setWalletOpen] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('hct_dark');
@@ -72,7 +82,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     }
   }, [authed, loadBootstrap]);
 
-  // Real-time sync across all 10 phones via Supabase sync_signals + focus refresh
   useEffect(() => {
     if (!authed) return;
     const supabase = getSupabaseBrowser();
@@ -127,7 +136,6 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
     }
   }
 
-  // Determine visible tabs dynamically based on Admin Feature Flags + Role
   const showStatsTab = Boolean(
     data &&
       (data.featureFlags.gamification ||
@@ -135,15 +143,16 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
         data.featureFlags.penalty_fund),
   );
   const isAdmin = data?.me.role === 'admin';
+  const isDelegatedAssigner = Boolean(data && !isAdmin && data.me.can_assign_tasks);
 
   useEffect(() => {
     if (tab === 'stats' && !showStatsTab) setTab('chores');
     if (tab === 'admin' && !isAdmin) setTab('chores');
-  }, [tab, showStatsTab, isAdmin]);
+    if (tab === 'assign' && !isDelegatedAssigner) setTab('chores');
+  }, [tab, showStatsTab, isAdmin, isDelegatedAssigner]);
 
   return (
     <div className="min-h-screen w-full flex justify-center bg-[#E5E7EB] dark:bg-[#090D16]">
-      {/* Strictly 430px centered mobile app frame */}
       <div className="w-full max-w-[430px] min-h-screen bg-[#F8F9FA] dark:bg-[#0F172A] sm:border-x sm:border-[#D1D5DB] dark:sm:border-[#1E293B] sm:shadow-xl flex flex-col relative">
         {!authed ? (
           <LoginScreen
@@ -168,10 +177,17 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                       ? 'Nhật ký hoạt động'
                       : tab === 'stats'
                         ? 'Thống kê & Xếp hạng'
-                        : 'Quản trị hệ thống'}
+                        : tab === 'assign'
+                          ? 'Giao việc thành viên'
+                          : 'Quản trị hệ thống'}
                 </h1>
                 <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] truncate">
                   Xin chào, <span className="font-semibold text-[#059669]">{data.me.display_name}</span>
+                  {isDelegatedAssigner && (
+                    <span className="ml-1.5 text-[10px] font-semibold text-[#D97706]">
+                      • Người giao việc
+                    </span>
+                  )}
                 </p>
               </div>
 
@@ -207,12 +223,18 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
             <main className="flex-1 px-4 py-4 pb-24">
               {tab === 'chores' && (
                 <ChoreBoard
+                  me={data.me}
                   chores={data.chores}
                   logs={data.logs}
+                  assignedChores={data.assignedChores}
                   featureFlags={data.featureFlags}
+                  weeklyFundConfig={data.weeklyFundConfig}
                   serverNowIso={data.serverNowIso}
-                  onStartComplete={(chore) => setCapturingChore(chore)}
+                  onStartComplete={(chore: Chore, assignedChore?: AssignedChoreItem | null) =>
+                    setCaptureTarget({ chore, assignedChore: assignedChore || null })
+                  }
                   onInspectPhoto={(log) => setInspectingLog(log)}
+                  onOpenWallet={() => setWalletOpen(true)}
                 />
               )}
 
@@ -240,14 +262,28 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                 />
               )}
 
+              {tab === 'assign' && isDelegatedAssigner && (
+                <AssignTasksPanel
+                  chores={data.chores}
+                  members={data.members}
+                  assignedChores={data.assignedChores}
+                  currentVnDate={data.currentVnDate}
+                  onRefresh={() => loadBootstrap(true)}
+                />
+              )}
+
               {tab === 'admin' && isAdmin && (
                 <AdminPanel
                   chores={data.chores}
                   logs={data.logs}
                   members={data.members}
+                  assignedChores={data.assignedChores}
+                  fundTransactions={data.fundTransactions}
                   featureFlags={data.featureFlags}
+                  weeklyFundConfig={data.weeklyFundConfig}
                   retentionDays={data.retentionDays}
                   lastCleanupAt={data.lastCleanupAt}
+                  currentVnDate={data.currentVnDate}
                   onRefresh={() => loadBootstrap(true)}
                   onModerate={handleModerateLog}
                   onInspectPhoto={(log) => setInspectingLog(log)}
@@ -302,6 +338,21 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   </button>
                 )}
 
+                {isDelegatedAssigner && (
+                  <button
+                    type="button"
+                    onClick={() => setTab('assign')}
+                    className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+                      tab === 'assign'
+                        ? 'text-[#059669]'
+                        : 'text-[#6B7280] dark:text-[#94A3B8]'
+                    }`}
+                  >
+                    <ClipboardList className="w-5 h-5" strokeWidth={tab === 'assign' ? 2.25 : 1.75} />
+                    Giao việc
+                  </button>
+                )}
+
                 {isAdmin && (
                   <button
                     type="button"
@@ -321,10 +372,18 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
 
             {/* Camera Verification Bottom Sheet */}
             <CameraCaptureSheet
-              chore={capturingChore}
+              target={captureTarget}
               memberName={data.me.display_name}
-              onClose={() => setCapturingChore(null)}
+              onClose={() => setCaptureTarget(null)}
               onCompleted={() => loadBootstrap(true)}
+            />
+
+            {/* Weekly Wallet Transaction History Drawer */}
+            <WeeklyWalletDrawer
+              open={walletOpen}
+              me={data.me}
+              transactions={data.fundTransactions}
+              onClose={() => setWalletOpen(false)}
             />
 
             {/* Full-screen Pinch-to-Zoom Proof Viewer */}

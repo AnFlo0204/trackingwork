@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
+import { getCurrentWeeklyPeriodKey, getVnDateParts } from '@/lib/time';
 
 const MAX_MEMBERS = 10;
 
@@ -16,6 +17,8 @@ export async function POST(req: Request) {
     const username = String(body?.username || '').trim();
     const displayName = String(body?.display_name || username).trim();
     const pin = String(body?.pin || '').trim();
+    const canAssignTasks = Boolean(body?.can_assign_tasks ?? false);
+    const weeklyAllowance = Math.max(0, Math.floor(Number(body?.weekly_allowance ?? 0)));
 
     if (!username || username.length < 2) {
       return NextResponse.json({ error: 'Tên đăng nhập phải có ít nhất 2 ký tự.' }, { status: 400 });
@@ -54,12 +57,32 @@ export async function POST(req: Request) {
         pin: null,
         password_hash: passwordHash,
         is_active: true,
+        can_assign_tasks: canAssignTasks,
+        weekly_allowance: weeklyAllowance,
+        current_balance: weeklyAllowance,
       })
-      .select('id, username, display_name, role, is_active, created_at')
+      .select(
+        'id, username, display_name, role, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
+      )
       .single();
 
-    if (error) {
+    if (error || !data) {
       return NextResponse.json({ error: 'Không thể tạo thành viên.' }, { status: 500 });
+    }
+
+    if (weeklyAllowance > 0) {
+      const nowMs = Date.now();
+      const parts = getVnDateParts(nowMs);
+      const periodKey = getCurrentWeeklyPeriodKey(nowMs, 1, 0);
+      await supabase.from('fund_transactions').insert({
+        profile_id: data.id,
+        tx_type: 'weekly_reset',
+        amount: weeklyAllowance,
+        balance_after: weeklyAllowance,
+        cycle_key: periodKey,
+        description: `Cấp quỹ tuần đầu (${String(parts.dd).padStart(2, '0')}/${String(parts.mm).padStart(2, '0')})`,
+        created_by: me.id,
+      });
     }
 
     await bumpSyncSignal('all');
@@ -86,30 +109,50 @@ export async function PATCH(req: Request) {
     const supabase = getSupabaseAdmin();
     const { data: target } = await supabase
       .from('profiles')
-      .select('id, role, username')
+      .select('id, role, username, current_balance, weekly_allowance')
       .eq('id', id)
       .maybeSingle();
 
     if (!target) {
       return NextResponse.json({ error: 'Không tìm thấy thành viên.' }, { status: 404 });
     }
-    if (target.role === 'admin') {
-      return NextResponse.json({ error: 'Không thể chỉnh sửa trạng thái hoặc PIN tài khoản Admin tại đây.' }, { status: 400 });
-    }
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (typeof body.display_name === 'string' && body.display_name.trim()) {
-      updates.display_name = body.display_name.trim();
-    }
-    if (typeof body.is_active === 'boolean') {
-      updates.is_active = body.is_active;
-    }
-    if (typeof body.pin === 'string' && body.pin.trim() !== '') {
-      const pin = body.pin.trim();
-      if (!/^\d{6}$/.test(pin)) {
-        return NextResponse.json({ error: 'Mã PIN mới phải gồm đúng 6 chữ số.' }, { status: 400 });
+
+    if (typeof body.weekly_allowance !== 'undefined') {
+      const nextAllowance = Math.max(0, Math.floor(Number(body.weekly_allowance)));
+      updates.weekly_allowance = nextAllowance;
+      // If member had 0 allowance/balance previously and Admin sets initial allowance, credit it now
+      if (Number(target.weekly_allowance || 0) === 0 && Number(target.current_balance || 0) === 0 && nextAllowance > 0) {
+        updates.current_balance = nextAllowance;
+        await supabase.from('fund_transactions').insert({
+          profile_id: id,
+          tx_type: 'adjustment',
+          amount: nextAllowance,
+          balance_after: nextAllowance,
+          description: 'Cấp quỹ tuần khởi tạo bởi Admin',
+          created_by: me.id,
+        });
       }
-      updates.password_hash = bcrypt.hashSync(pin, 10);
+    }
+
+    if (target.role !== 'admin') {
+      if (typeof body.display_name === 'string' && body.display_name.trim()) {
+        updates.display_name = body.display_name.trim();
+      }
+      if (typeof body.is_active === 'boolean') {
+        updates.is_active = body.is_active;
+      }
+      if (typeof body.can_assign_tasks === 'boolean') {
+        updates.can_assign_tasks = body.can_assign_tasks;
+      }
+      if (typeof body.pin === 'string' && body.pin.trim() !== '') {
+        const pin = body.pin.trim();
+        if (!/^\d{6}$/.test(pin)) {
+          return NextResponse.json({ error: 'Mã PIN mới phải gồm đúng 6 chữ số.' }, { status: 400 });
+        }
+        updates.password_hash = bcrypt.hashSync(pin, 10);
+      }
     }
 
     const { error } = await supabase.from('profiles').update(updates).eq('id', id);

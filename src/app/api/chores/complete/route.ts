@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { getAuthenticatedProfile } from '@/lib/auth';
 import { bumpSyncSignal, getSupabaseAdmin } from '@/lib/supabaseAdmin';
-import { fetchAuthoritativeServerTime } from '@/lib/time';
+import { fetchAuthoritativeServerTime, getVnDateParts } from '@/lib/time';
 
 export async function POST(req: Request) {
   const me = await getAuthenticatedProfile();
@@ -13,6 +13,8 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const choreId = String(formData.get('choreId') || '').trim();
+    const assignedChoreId = String(formData.get('assignedChoreId') || '').trim() || null;
+    const requestedCycleKey = String(formData.get('cycleKey') || '').trim() || null;
     const photo = formData.get('photo');
 
     if (!choreId || !(photo instanceof Blob)) {
@@ -49,19 +51,57 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Công việc không tồn tại hoặc đã bị ẩn.' }, { status: 404 });
     }
 
-    // Server-side cooldown check against authoritative server time
     const serverNowMs = Date.parse(serverTime.isoUtc);
-    const cooldownMs = Math.max(0, Number(chore.cooldown_minutes || 0)) * 60_000;
-    if (latestLogRes.data && cooldownMs > 0) {
-      const lastMs = Date.parse(latestLogRes.data.server_timestamp);
-      const elapsed = serverNowMs - lastMs;
-      if (elapsed >= 0 && elapsed < cooldownMs) {
-        const remainMin = Math.ceil((cooldownMs - elapsed) / 60_000);
+    const todayCycleKey = getVnDateParts(serverNowMs).dateStr;
+    let resolvedCycleKey: string | null = requestedCycleKey || todayCycleKey;
+
+    if (assignedChoreId) {
+      // Validate assignment belongs to caller and is not already completed for this cycle
+      const { data: assignment } = await supabase
+        .from('assigned_chores')
+        .select('id, assignee_id, chore_id, is_active, schedule_type, due_date')
+        .eq('id', assignedChoreId)
+        .maybeSingle();
+
+      if (!assignment || !assignment.is_active) {
+        return NextResponse.json({ error: 'Nhiệm vụ được giao không còn hiệu lực.' }, { status: 404 });
+      }
+      if (assignment.assignee_id !== me.id) {
+        return NextResponse.json({ error: 'Nhiệm vụ này được giao cho thành viên khác.' }, { status: 403 });
+      }
+      if (assignment.schedule_type === 'once' && assignment.due_date) {
+        resolvedCycleKey = assignment.due_date;
+      }
+
+      const { data: dupLog } = await supabase
+        .from('chore_logs')
+        .select('id')
+        .eq('assigned_chore_id', assignedChoreId)
+        .eq('cycle_key', resolvedCycleKey)
+        .limit(1)
+        .maybeSingle();
+
+      if (dupLog) {
         return NextResponse.json(
-          { error: `Việc này vừa được hoàn thành. Vui lòng đợi thêm ${remainMin} phút.` },
-          { status: 429 },
+          { error: 'Bạn đã hoàn thành nhiệm vụ được giao trong chu kỳ này rồi.' },
+          { status: 409 },
         );
       }
+    } else {
+      // Standard shared-chore cooldown check
+      const cooldownMs = Math.max(0, Number(chore.cooldown_minutes || 0)) * 60_000;
+      if (latestLogRes.data && cooldownMs > 0) {
+        const lastMs = Date.parse(latestLogRes.data.server_timestamp);
+        const elapsed = serverNowMs - lastMs;
+        if (elapsed >= 0 && elapsed < cooldownMs) {
+          const remainMin = Math.ceil((cooldownMs - elapsed) / 60_000);
+          return NextResponse.json(
+            { error: `Việc này vừa được hoàn thành. Vui lòng đợi thêm ${remainMin} phút.` },
+            { status: 429 },
+          );
+        }
+      }
+      resolvedCycleKey = null;
     }
 
     const buffer = Buffer.from(await photo.arrayBuffer());
@@ -89,6 +129,8 @@ export async function POST(req: Request) {
       .insert({
         chore_id: chore.id,
         profile_id: me.id,
+        assigned_chore_id: assignedChoreId,
+        cycle_key: resolvedCycleKey,
         proof_url: publicUrlData.publicUrl,
         storage_path: storagePath,
         points_awarded: pointsAwarded,

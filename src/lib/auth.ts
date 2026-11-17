@@ -62,17 +62,23 @@ export async function getAuthenticatedProfile(): Promise<ProfilePublic | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, username, display_name, role, is_active, created_at')
+    .select(
+      'id, username, display_name, role, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
+    )
     .eq('id', verified.uid)
     .maybeSingle();
 
   if (error || !data || !data.is_active) return null;
+  const role = data.role === 'admin' ? 'admin' : 'member';
   return {
     id: data.id,
     username: data.username,
     display_name: data.display_name || data.username,
-    role: data.role === 'admin' ? 'admin' : 'member',
+    role,
     is_active: Boolean(data.is_active),
+    can_assign_tasks: role === 'admin' ? true : Boolean(data.can_assign_tasks),
+    weekly_allowance: Number(data.weekly_allowance || 0),
+    current_balance: Number(data.current_balance || 0),
     created_at: data.created_at,
   };
 }

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  ClipboardList,
   Database,
   Download,
   KeyRound,
@@ -14,24 +15,39 @@ import {
   UserCheck,
   UserX,
   Users,
+  Wallet,
 } from 'lucide-react';
-import type { Chore, ChoreFrequency, ChoreLogItem, FeatureFlags, ProfilePublic } from '@/lib/types';
+import type {
+  AssignedChoreItem,
+  Chore,
+  ChoreFrequency,
+  ChoreLogItem,
+  FeatureFlags,
+  FundTransactionItem,
+  ProfilePublic,
+  WeeklyFundConfig,
+} from '@/lib/types';
 import { formatIsoToVn } from '@/lib/time';
 import { CHORE_ICON_OPTIONS, ChoreIcon } from './ChoreIcon';
+import { AssignTasksPanel } from './AssignTasksPanel';
 
 interface AdminPanelProps {
   chores: Chore[];
   logs: ChoreLogItem[];
   members: ProfilePublic[];
+  assignedChores: AssignedChoreItem[];
+  fundTransactions: FundTransactionItem[];
   featureFlags: FeatureFlags;
+  weeklyFundConfig: WeeklyFundConfig;
   retentionDays: number;
   lastCleanupAt: string | null;
+  currentVnDate: string;
   onRefresh: () => Promise<void>;
   onModerate: (log: ChoreLogItem) => Promise<void>;
   onInspectPhoto: (log: ChoreLogItem) => void;
 }
 
-type AdminSection = 'flags' | 'chores' | 'members' | 'data';
+type AdminSection = 'flags' | 'assign' | 'chores' | 'members' | 'data';
 
 const FEATURE_META: Array<{ key: keyof FeatureFlags; title: string; desc: string }> = [
   {
@@ -51,18 +67,32 @@ const FEATURE_META: Array<{ key: keyof FeatureFlags; title: string; desc: string
   },
   {
     key: 'penalty_fund',
-    title: 'Quỹ phạt & Nhắc nhở',
-    desc: 'Cảnh báo việc định kỳ bị bỏ sót và theo dõi quỹ đóng phạt chung.',
+    title: 'Quỹ phạt chung & Nhắc nhở',
+    desc: 'Hiển thị mục quỹ phạt và cảnh báo việc định kỳ chưa hoàn thành ở tab Thống kê.',
   },
+];
+
+const RESET_DAYS = [
+  { val: 1, label: 'Thứ 2 hàng tuần' },
+  { val: 2, label: 'Thứ 3 hàng tuần' },
+  { val: 3, label: 'Thứ 4 hàng tuần' },
+  { val: 4, label: 'Thứ 5 hàng tuần' },
+  { val: 5, label: 'Thứ 6 hàng tuần' },
+  { val: 6, label: 'Thứ 7 hàng tuần' },
+  { val: 0, label: 'Chủ nhật hàng tuần' },
 ];
 
 export function AdminPanel({
   chores,
   logs,
   members,
+  assignedChores,
+  fundTransactions,
   featureFlags,
+  weeklyFundConfig,
   retentionDays,
   lastCleanupAt,
+  currentVnDate,
   onRefresh,
   onModerate,
   onInspectPhoto,
@@ -84,9 +114,19 @@ export function AdminPanel({
   const [memUsername, setMemUsername] = useState('');
   const [memDisplayName, setMemDisplayName] = useState('');
   const [memPin, setMemPin] = useState('');
+  const [memCanAssign, setMemCanAssign] = useState(false);
+  const [memAllowance, setMemAllowance] = useState('500000');
   const [savingMember, setSavingMember] = useState(false);
   const [resetPinId, setResetPinId] = useState<string | null>(null);
   const [resetPinVal, setResetPinVal] = useState('');
+  const [allowanceEdits, setAllowanceEdits] = useState<Record<string, string>>({});
+
+  // Fund adjustment state
+  const [adjProfileId, setAdjProfileId] = useState('');
+  const [adjType, setAdjType] = useState<'refund' | 'deduct'>('refund');
+  const [adjAmount, setAdjAmount] = useState('20000');
+  const [adjReason, setAdjReason] = useState('Hoàn tiền khiếu nại hợp lệ');
+  const [savingAdj, setSavingAdj] = useState(false);
 
   // Retention state
   const [retInput, setRetInput] = useState(String(retentionDays));
@@ -95,6 +135,18 @@ export function AdminPanel({
   useEffect(() => {
     setRetInput(String(retentionDays));
   }, [retentionDays]);
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const m of members) {
+      next[m.id] = String(m.weekly_allowance ?? 0);
+    }
+    setAllowanceEdits(next);
+    if (!adjProfileId && members.length > 0) {
+      const firstMember = members.find((m) => m.role === 'member') || members[0];
+      setAdjProfileId(firstMember.id);
+    }
+  }, [members, adjProfileId]);
 
   const memberRoster = members.filter((m) => m.role === 'member');
 
@@ -116,6 +168,20 @@ export function AdminPanel({
     }
     await onRefresh();
     notify('ok', 'Đã đồng bộ cấu hình cho tất cả thành viên.');
+  }
+
+  async function updateWeeklyFundConfig(nextConfig: WeeklyFundConfig) {
+    const res = await fetch('/api/admin/fund', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'config', config: nextConfig }),
+    });
+    if (!res.ok) {
+      notify('err', 'Không thể lưu cấu hình ví quỹ tuần.');
+      return;
+    }
+    await onRefresh();
+    notify('ok', 'Đã cập nhật cấu hình ví quỹ tuần.');
   }
 
   function startEditChore(c: Chore) {
@@ -196,6 +262,8 @@ export function AdminPanel({
           username: memUsername.trim(),
           display_name: memDisplayName.trim() || memUsername.trim(),
           pin: memPin.trim(),
+          can_assign_tasks: memCanAssign,
+          weekly_allowance: Number(memAllowance || 0),
         }),
       });
       const data = await res.json();
@@ -206,6 +274,7 @@ export function AdminPanel({
       setMemUsername('');
       setMemDisplayName('');
       setMemPin('');
+      setMemCanAssign(false);
       await onRefresh();
       notify('ok', 'Đã tạo tài khoản thành viên mới.');
     } finally {
@@ -221,6 +290,46 @@ export function AdminPanel({
     });
     await onRefresh();
     notify('ok', m.is_active ? `Đã tạm khóa ${m.display_name}.` : `Đã mở khóa ${m.display_name}.`);
+  }
+
+  async function toggleCanAssign(m: ProfilePublic) {
+    await fetch('/api/admin/members', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: m.id, can_assign_tasks: !m.can_assign_tasks }),
+    });
+    await onRefresh();
+    notify(
+      'ok',
+      !m.can_assign_tasks
+        ? `Đã cấp quyền giao việc cho ${m.display_name}.`
+        : `Đã thu hồi quyền giao việc của ${m.display_name}.`,
+    );
+  }
+
+  async function saveMemberAllowance(m: ProfilePublic) {
+    const val = Number(allowanceEdits[m.id] ?? 0);
+    const res = await fetch('/api/admin/members', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: m.id, weekly_allowance: val }),
+    });
+    if (res.ok) {
+      await onRefresh();
+      notify('ok', `Đã lưu định mức quỹ tuần cho ${m.display_name}.`);
+    }
+  }
+
+  async function resetMemberBalanceNow(m: ProfilePublic) {
+    const res = await fetch('/api/admin/fund', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset_member', profile_id: m.id }),
+    });
+    if (res.ok) {
+      await onRefresh();
+      notify('ok', `Đã cấp lại số dư theo định mức cho ${m.display_name}.`);
+    }
   }
 
   async function submitResetPin(id: string) {
@@ -243,6 +352,36 @@ export function AdminPanel({
     await fetch(`/api/admin/members?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
     await onRefresh();
     notify('ok', 'Đã xóa thành viên.');
+  }
+
+  async function handleManualAdjustment(e: FormEvent) {
+    e.preventDefault();
+    const raw = Math.abs(Number(adjAmount || 0));
+    if (!adjProfileId || raw === 0 || !adjReason.trim()) return;
+    setSavingAdj(true);
+    try {
+      const signedAmount = adjType === 'refund' ? raw : -raw;
+      const res = await fetch('/api/admin/fund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'adjust',
+          profile_id: adjProfileId,
+          amount: signedAmount,
+          tx_type: adjType === 'refund' ? 'refund' : 'adjustment',
+          description: adjReason.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        notify('err', data?.error || 'Không thể điều chỉnh số dư.');
+        return;
+      }
+      await onRefresh();
+      notify('ok', 'Đã cập nhật số dư ví quỹ tuần.');
+    } finally {
+      setSavingAdj(false);
+    }
   }
 
   async function saveRetentionDays(e: FormEvent) {
@@ -279,13 +418,14 @@ export function AdminPanel({
   return (
     <div className="space-y-3.5">
       {/* Admin Sub-Navigation */}
-      <div className="grid grid-cols-4 gap-1.5 bg-[#F3F4F6] dark:bg-[#1E293B] p-1 rounded-2xl border border-[#E5E7EB] dark:border-[#334155]">
+      <div className="grid grid-cols-5 gap-1 bg-[#F3F4F6] dark:bg-[#1E293B] p-1 rounded-2xl border border-[#E5E7EB] dark:border-[#334155]">
         {(
           [
             { key: 'flags', label: 'Tính năng', icon: Sliders },
+            { key: 'assign', label: 'Giao việc', icon: ClipboardList },
             { key: 'chores', label: 'Việc nhà', icon: Shield },
-            { key: 'members', label: 'Thành viên', icon: Users },
-            { key: 'data', label: 'Dữ liệu', icon: Database },
+            { key: 'members', label: 'Nhân sự', icon: Users },
+            { key: 'data', label: 'Quỹ & DL', icon: Database },
           ] as const
         ).map((tab) => {
           const Icon = tab.icon;
@@ -295,7 +435,7 @@ export function AdminPanel({
               key={tab.key}
               type="button"
               onClick={() => setSection(tab.key)}
-              className={`h-11 rounded-xl text-[11px] font-semibold flex flex-col items-center justify-center gap-0.5 transition ${
+              className={`h-11 rounded-xl text-[10px] font-semibold flex flex-col items-center justify-center gap-0.5 transition ${
                 active
                   ? 'bg-white dark:bg-[#0F172A] text-[#059669] shadow-sm'
                   : 'text-[#6B7280] dark:text-[#94A3B8]'
@@ -320,43 +460,139 @@ export function AdminPanel({
         </div>
       )}
 
-      {/* 1. Feature Flags */}
+      {/* 1. Feature Flags + Weekly Fund Global Config */}
       {section === 'flags' && (
-        <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl divide-y divide-[#F3F4F6] dark:divide-[#334155]">
-          {FEATURE_META.map((item) => {
-            const on = featureFlags[item.key];
-            return (
-              <div key={item.key} className="p-4 flex items-center justify-between gap-3">
-                <div className="min-w-0">
+        <div className="space-y-3">
+          <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <Wallet className="w-4 h-4 text-[#059669]" />
                   <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
-                    {item.title}
-                  </p>
-                  <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] mt-0.5 leading-relaxed">
-                    {item.desc}
+                    Ví quỹ tuần & Trừ phạt tự động
                   </p>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={on}
-                  onClick={() => toggleFeature(item.key)}
-                  className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${
-                    on ? 'bg-[#059669]' : 'bg-[#D1D5DB] dark:bg-[#475569]'
-                  }`}
-                >
-                  <span
-                    className={`block w-6 h-6 rounded-full bg-white shadow transition-transform ${
-                      on ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] mt-0.5">
+                  Tự động cấp định mức hàng tuần và trừ số dư khi trễ hạn việc được giao.
+                </p>
               </div>
-            );
-          })}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={weeklyFundConfig.enabled}
+                onClick={() =>
+                  updateWeeklyFundConfig({
+                    ...weeklyFundConfig,
+                    enabled: !weeklyFundConfig.enabled,
+                  })
+                }
+                className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${
+                  weeklyFundConfig.enabled ? 'bg-[#059669]' : 'bg-[#D1D5DB] dark:bg-[#475569]'
+                }`}
+              >
+                <span
+                  className={`block w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                    weeklyFundConfig.enabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {weeklyFundConfig.enabled && (
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#F3F4F6] dark:border-[#334155]">
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#6B7280] dark:text-[#94A3B8] mb-1">
+                    Ngày reset tuần
+                  </label>
+                  <select
+                    value={weeklyFundConfig.reset_day}
+                    onChange={(e) =>
+                      updateWeeklyFundConfig({
+                        ...weeklyFundConfig,
+                        reset_day: Number(e.target.value),
+                      })
+                    }
+                    className="w-full h-11 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-xs"
+                  >
+                    {RESET_DAYS.map((d) => (
+                      <option key={d.val} value={d.val}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#6B7280] dark:text-[#94A3B8] mb-1">
+                    Giờ reset (UTC+7)
+                  </label>
+                  <select
+                    value={weeklyFundConfig.reset_hour}
+                    onChange={(e) =>
+                      updateWeeklyFundConfig({
+                        ...weeklyFundConfig,
+                        reset_hour: Number(e.target.value),
+                      })
+                    }
+                    className="w-full h-11 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-xs tabular-nums"
+                  >
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <option key={h} value={h}>
+                        {String(h).padStart(2, '0')}:00
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl divide-y divide-[#F3F4F6] dark:divide-[#334155]">
+            {FEATURE_META.map((item) => {
+              const on = featureFlags[item.key];
+              return (
+                <div key={item.key} className="p-4 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
+                      {item.title}
+                    </p>
+                    <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] mt-0.5 leading-relaxed">
+                      {item.desc}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={on}
+                    onClick={() => toggleFeature(item.key)}
+                    className={`w-12 h-7 rounded-full p-0.5 transition-colors shrink-0 ${
+                      on ? 'bg-[#059669]' : 'bg-[#D1D5DB] dark:bg-[#475569]'
+                    }`}
+                  >
+                    <span
+                      className={`block w-6 h-6 rounded-full bg-white shadow transition-transform ${
+                        on ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* 2. Chore & Cooldown Management */}
+      {/* 2. Delegated / Admin Task Assignment */}
+      {section === 'assign' && (
+        <AssignTasksPanel
+          chores={chores}
+          members={members}
+          assignedChores={assignedChores}
+          currentVnDate={currentVnDate}
+          onRefresh={onRefresh}
+        />
+      )}
+
+      {/* 3. Chore & Cooldown Management */}
       {section === 'chores' && (
         <div className="space-y-3">
           <form
@@ -447,7 +683,7 @@ export function AdminPanel({
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-[#6B7280] dark:text-[#94A3B8] mb-1">
-                  Phạt (đ)
+                  Phạt mặc định
                 </label>
                 <input
                   type="number"
@@ -489,12 +725,8 @@ export function AdminPanel({
                       {c.title}
                     </p>
                     <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
-                      +{c.points} đ • Chờ {c.cooldown_minutes}p •{' '}
-                      {c.frequency === 'daily'
-                        ? 'Hàng ngày'
-                        : c.frequency === 'weekly'
-                          ? 'Hàng tuần'
-                          : 'Tự do'}
+                      +{c.points} đ • Phạt {c.penalty_amount.toLocaleString('vi-VN')}đ • Chờ{' '}
+                      {c.cooldown_minutes}p
                     </p>
                   </div>
                 </button>
@@ -533,13 +765,13 @@ export function AdminPanel({
         </div>
       )}
 
-      {/* 3. 10-Slot Member Roster */}
+      {/* 4. 10-Slot Member Roster + Delegated Assigner Switch + Weekly Allowance */}
       {section === 'members' && (
         <div className="space-y-3">
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
-                Danh sách thành viên
+                Thêm thành viên mới
               </h3>
               <span className="px-2.5 py-1 rounded-lg bg-[#F3F4F6] dark:bg-[#0F172A] text-xs font-bold tabular-nums">
                 {memberRoster.length} / 10 slot
@@ -565,7 +797,7 @@ export function AdminPanel({
                 />
               </div>
 
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <input
                   type="text"
                   inputMode="numeric"
@@ -573,26 +805,48 @@ export function AdminPanel({
                   pattern="\d{6}"
                   value={memPin}
                   onChange={(e) => setMemPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="Mã PIN 6 số (VD: 123456)"
+                  placeholder="Mã PIN 6 số"
                   required
-                  className="flex-1 h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm tabular-nums"
+                  className="h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm tabular-nums"
                 />
-                <button
-                  type="submit"
-                  disabled={savingMember || memberRoster.length >= 10}
-                  className="h-12 px-4 rounded-xl bg-[#059669] disabled:opacity-50 text-white text-sm font-semibold shrink-0"
-                >
-                  {savingMember ? 'Đang thêm...' : 'Thêm'}
-                </button>
+                <input
+                  type="number"
+                  min={0}
+                  step={50000}
+                  value={memAllowance}
+                  onChange={(e) => setMemAllowance(e.target.value)}
+                  placeholder="Quỹ tuần (VNĐ)"
+                  className="h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm tabular-nums"
+                />
               </div>
+
+              <label className="flex items-center justify-between rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] px-3 py-2.5 cursor-pointer">
+                <span className="text-xs font-semibold text-[#111827] dark:text-[#F8FAFC]">
+                  Cấp quyền giao việc (Người giao việc)
+                </span>
+                <input
+                  type="checkbox"
+                  checked={memCanAssign}
+                  onChange={(e) => setMemCanAssign(e.target.checked)}
+                  className="w-4 h-4 accent-[#059669]"
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={savingMember || memberRoster.length >= 10}
+                className="w-full h-12 rounded-xl bg-[#059669] disabled:opacity-50 text-white text-sm font-semibold"
+              >
+                {savingMember ? 'Đang thêm...' : 'Thêm thành viên'}
+              </button>
             </form>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {memberRoster.map((m) => (
               <div
                 key={m.id}
-                className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-2.5"
+                className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-3"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
@@ -602,7 +856,9 @@ export function AdminPanel({
                         <span className="text-[11px] font-semibold text-[#DC2626]">(Đã khóa)</span>
                       )}
                     </p>
-                    <p className="text-xs text-[#6B7280] dark:text-[#94A3B8]">@{m.username}</p>
+                    <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
+                      @{m.username} • Số dư: {m.current_balance.toLocaleString('vi-VN')}đ
+                    </p>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -641,6 +897,61 @@ export function AdminPanel({
                   </div>
                 </div>
 
+                {/* Permission toggle: Quyền giao việc */}
+                <div className="flex items-center justify-between rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] px-3 py-2">
+                  <span className="text-xs font-semibold text-[#374151] dark:text-[#CBD5E1]">
+                    Quyền giao việc
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={m.can_assign_tasks}
+                    onClick={() => toggleCanAssign(m)}
+                    className={`w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 ${
+                      m.can_assign_tasks ? 'bg-[#059669]' : 'bg-[#D1D5DB] dark:bg-[#475569]'
+                    }`}
+                  >
+                    <span
+                      className={`block w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                        m.can_assign_tasks ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Weekly Allowance Config per member */}
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-semibold text-[#6B7280] dark:text-[#94A3B8] mb-0.5">
+                      Định mức quỹ tuần (VNĐ)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={50000}
+                      value={allowanceEdits[m.id] ?? String(m.weekly_allowance)}
+                      onChange={(e) =>
+                        setAllowanceEdits((prev) => ({ ...prev, [m.id]: e.target.value }))
+                      }
+                      className="w-full h-10 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-xs tabular-nums"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => saveMemberAllowance(m)}
+                    className="mt-4 h-10 px-3 rounded-xl bg-[#111827] dark:bg-[#059669] text-white text-xs font-semibold shrink-0"
+                  >
+                    Lưu quỹ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => resetMemberBalanceNow(m)}
+                    className="mt-4 h-10 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-medium shrink-0"
+                  >
+                    Cấp lại
+                  </button>
+                </div>
+
                 {resetPinId === m.id && (
                   <div className="flex gap-2 pt-1">
                     <input
@@ -667,9 +978,109 @@ export function AdminPanel({
         </div>
       )}
 
-      {/* 4. Data Retention, Backup CSV & Quick Moderation */}
+      {/* 5. Weekly Fund Adjustments + Data Retention, Backup CSV & Quick Moderation */}
       {section === 'data' && (
         <div className="space-y-3">
+          {/* Manual Balance Adjustment / Refund */}
+          <form
+            onSubmit={handleManualAdjustment}
+            className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3"
+          >
+            <div>
+              <h3 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
+                Điều chỉnh / Hoàn tiền ví quỹ tuần
+              </h3>
+              <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] mt-0.5">
+                Hoàn tiền khi thành viên khiếu nại hợp lệ hoặc cộng/trừ số dư thủ công.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                value={adjProfileId}
+                onChange={(e) => setAdjProfileId(e.target.value)}
+                required
+                className="h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm"
+              >
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name} ({m.current_balance.toLocaleString('vi-VN')}đ)
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={adjType}
+                onChange={(e) => setAdjType(e.target.value as 'refund' | 'deduct')}
+                className="h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm"
+              >
+                <option value="refund">+ Hoàn tiền / Cộng quỹ</option>
+                <option value="deduct">- Trừ số dư</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                type="number"
+                min={1000}
+                step={5000}
+                value={adjAmount}
+                onChange={(e) => setAdjAmount(e.target.value)}
+                placeholder="Số tiền"
+                required
+                className="h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm tabular-nums"
+              />
+              <input
+                type="text"
+                value={adjReason}
+                onChange={(e) => setAdjReason(e.target.value)}
+                placeholder="Lý do điều chỉnh"
+                required
+                className="col-span-2 h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={savingAdj}
+              className="w-full h-12 rounded-xl bg-[#059669] text-white text-sm font-semibold"
+            >
+              {savingAdj ? 'Đang cập nhật...' : 'Xác nhận điều chỉnh số dư'}
+            </button>
+
+            {fundTransactions.length > 0 && (
+              <div className="pt-2 border-t border-[#F3F4F6] dark:border-[#334155] space-y-1.5">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#6B7280] dark:text-[#94A3B8]">
+                  Biến động quỹ gần đây
+                </p>
+                {fundTransactions.slice(0, 6).map((tx) => (
+                  <div
+                    key={tx.id}
+                    className="flex items-center justify-between gap-2 text-xs py-1 tabular-nums"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate text-[#111827] dark:text-[#F8FAFC]">
+                        {tx.member_name} • {tx.description}
+                      </p>
+                      <p className="text-[10px] text-[#6B7280] dark:text-[#94A3B8]">
+                        {formatIsoToVn(tx.server_timestamp)}
+                      </p>
+                    </div>
+                    <span
+                      className={`font-bold shrink-0 ${
+                        tx.amount >= 0 ? 'text-[#059669]' : 'text-[#DC2626]'
+                      }`}
+                    >
+                      {tx.amount >= 0 ? '+' : ''}
+                      {tx.amount.toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </form>
+
+          {/* Retention & Backup */}
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
             <div>
               <h3 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">

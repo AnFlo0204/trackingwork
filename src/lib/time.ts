@@ -6,11 +6,19 @@ export interface ServerTimeResult {
   isoUtc: string;
 }
 
+export interface VnDateParts {
+  yyyy: number;
+  mm: number;
+  dd: number;
+  dayOfWeek: number; // 0=Sun..6=Sat
+  hh: number;
+  min: number;
+  ss: number;
+  dateStr: string; // YYYY-MM-DD
+}
+
 /**
  * Formats a timestamp string returned by `get_server_time()` (`SELECT NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh'`).
- * PostgREST serializes `timestamp without time zone` as e.g. "2026-11-17T17:06:20.344324" (or with +00).
- * The date/time digits themselves are already in Asia/Ho_Chi_Minh (UTC+7), so we extract wall-clock parts directly
- * without shifting by +7h again, while computing true UTC ISO by subtracting 7 hours from those wall-clock digits.
  */
 export function parseVnWallClock(raw: string): ServerTimeResult {
   const match = raw.match(/(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
@@ -18,7 +26,7 @@ export function parseVnWallClock(raw: string): ServerTimeResult {
     const now = new Date();
     return {
       vnFormatted: formatUtcMsToVn(now.getTime()),
-      vnIsoWallClock: now.toISOString(),
+      vnIsoWallClock: formatUtcMsToVnIso(now.getTime()),
       isoUtc: now.toISOString(),
     };
   }
@@ -51,6 +59,50 @@ export async function fetchAuthoritativeServerTime(): Promise<ServerTimeResult> 
     };
   }
   return parseVnWallClock(String(data));
+}
+
+export function getVnDateParts(utcMs: number): VnDateParts {
+  const vn = new Date(utcMs + 7 * 60 * 60 * 1000);
+  const yyyy = vn.getUTCFullYear();
+  const mm = vn.getUTCMonth() + 1;
+  const dd = vn.getUTCDate();
+  const dayOfWeek = vn.getUTCDay();
+  const hh = vn.getUTCHours();
+  const min = vn.getUTCMinutes();
+  const ss = vn.getUTCSeconds();
+  const dateStr = `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+  return { yyyy, mm, dd, dayOfWeek, hh, min, ss, dateStr };
+}
+
+export function vnDateTimeToUtcMs(dateStr: string, hhmm = '23:59'): number {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [hh, mm] = (hhmm || '23:59').split(':').map(Number);
+  const wallMs = Date.UTC(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 59);
+  return wallMs - 7 * 60 * 60 * 1000;
+}
+
+export function addDaysToVnDateStr(dateStr: string, deltaDays: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1) + deltaDays * 86_400_000);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+export function getDayOfWeekFromVnDateStr(dateStr: string): number {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay();
+}
+
+/**
+ * Computes an idempotent weekly cycle key (e.g. `W_2026-11-16`) based on configurable reset_day & reset_hour in UTC+7.
+ */
+export function getCurrentWeeklyPeriodKey(serverNowMs: number, resetDay = 1, resetHour = 0): string {
+  const parts = getVnDateParts(serverNowMs);
+  let daysSinceReset = (parts.dayOfWeek - resetDay + 7) % 7;
+  if (daysSinceReset === 0 && parts.hh < resetHour) {
+    daysSinceReset = 7;
+  }
+  const resetDateStr = addDaysToVnDateStr(parts.dateStr, -daysSinceReset);
+  return `W_${resetDateStr}`;
 }
 
 export function formatUtcMsToVn(utcMs: number): string {
@@ -95,14 +147,11 @@ export function formatRelativeVi(targetIso: string, serverNowMs: number): string
   return formatUtcMsToVn(targetMs).slice(0, 10);
 }
 
-/**
- * Returns start-of-day and start-of-week (Monday) UTC epoch ms in Asia/Ho_Chi_Minh timezone.
- */
 export function getVnPeriodBounds(serverNowMs: number): { startOfDayUtcMs: number; startOfWeekUtcMs: number } {
   const vnMs = serverNowMs + 7 * 60 * 60 * 1000;
   const vnDate = new Date(vnMs);
   const startOfDayVnMs = Date.UTC(vnDate.getUTCFullYear(), vnDate.getUTCMonth(), vnDate.getUTCDate(), 0, 0, 0);
-  const dayOfWeek = vnDate.getUTCDay(); // 0=Sun..6=Sat
+  const dayOfWeek = vnDate.getUTCDay();
   const diffFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
   const startOfWeekVnMs = startOfDayVnMs - diffFromMonday * 24 * 60 * 60 * 1000;
   return {

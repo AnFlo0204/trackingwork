@@ -2,18 +2,23 @@
 
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Camera, Check, RefreshCw, ShieldCheck, Video, X } from 'lucide-react';
-import type { Chore } from '@/lib/types';
+import type { AssignedChoreItem, Chore } from '@/lib/types';
 import { createWatermarkedProof, type WatermarkedPhotoResult } from '@/lib/watermarker';
 
+export interface CaptureTarget {
+  chore: Chore;
+  assignedChore?: AssignedChoreItem | null;
+}
+
 interface CameraCaptureSheetProps {
-  chore: Chore | null;
+  target: CaptureTarget | null;
   memberName: string;
   onClose: () => void;
   onCompleted: () => Promise<void>;
 }
 
 export function CameraCaptureSheet({
-  chore,
+  target,
   memberName,
   onClose,
   onCompleted,
@@ -27,6 +32,9 @@ export function CameraCaptureSheet({
   const [serverStamp, setServerStamp] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const chore = target?.chore ?? null;
+  const assigned = target?.assignedChore ?? null;
 
   function stopStream() {
     if (streamRef.current) {
@@ -49,7 +57,7 @@ export function CameraCaptureSheet({
       stopStream();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chore?.id]);
+  }, [chore?.id, assigned?.id]);
 
   useEffect(() => {
     if (mode === 'webrtc' && videoRef.current && streamRef.current) {
@@ -76,7 +84,7 @@ export function CameraCaptureSheet({
 
       const result = await createWatermarkedProof(blob, {
         memberName,
-        choreTitle: chore.title,
+        choreTitle: assigned ? `${chore.title} (Được giao)` : chore.title,
         serverTimeFormatted: vnFormatted,
       });
 
@@ -96,7 +104,6 @@ export function CameraCaptureSheet({
     e.target.value = '';
     if (!file) return;
 
-    // Anti-fraud check: reject stale files picked from gallery/disk (> 3 minutes old)
     if (file.lastModified && Date.now() - file.lastModified > 180_000) {
       setError('Chỉ chấp nhận ảnh vừa chụp trực tiếp từ camera, không dùng ảnh có sẵn trong thư viện.');
       return;
@@ -124,7 +131,7 @@ export function CameraCaptureSheet({
       streamRef.current = stream;
       setMode('webrtc');
     } catch {
-      setError('Không thể truy cập ống kính trực tiếp. Hãy dùng nút "Mở Camera điện thoại".');
+      setError('Không thể truy cập ống kính trực tiếp. Hãy dùng nút "Mở Camera sau chụp ảnh".');
     }
   }
 
@@ -160,6 +167,12 @@ export function CameraCaptureSheet({
       const ext = watermarked.mimeType === 'image/jpeg' ? 'jpg' : 'webp';
       const formData = new FormData();
       formData.append('choreId', chore.id);
+      if (assigned) {
+        formData.append('assignedChoreId', assigned.id);
+        if (assigned.current_cycle_key) {
+          formData.append('cycleKey', assigned.current_cycle_key);
+        }
+      }
       formData.append('photo', watermarked.blob, `proof.${ext}`);
 
       const res = await fetch('/api/chores/complete', {
@@ -195,13 +208,12 @@ export function CameraCaptureSheet({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-[2px]">
       <div className="w-full max-w-[430px] bg-white dark:bg-[#1E293B] border-t border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl p-5 pb-7 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
-        {/* Drawer Handle + Header */}
         <div className="w-10 h-1 rounded-full bg-[#D1D5DB] dark:bg-[#475569] mx-auto -mt-1" />
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#059669]">
               <ShieldCheck className="w-3.5 h-3.5" />
-              Xác thực Camera trực tiếp
+              {assigned ? 'Xác thực việc được giao' : 'Xác thực Camera trực tiếp'}
             </div>
             <h2 className="text-lg font-bold text-[#111827] dark:text-[#F8FAFC] mt-0.5">
               {chore.title}
@@ -220,7 +232,6 @@ export function CameraCaptureSheet({
           </button>
         </div>
 
-        {/* Strict rear-camera-only hidden input */}
         <input
           ref={fileInputRef}
           type="file"

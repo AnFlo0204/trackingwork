@@ -19,7 +19,9 @@ export async function POST(req: Request) {
     const supabase = getSupabaseAdmin();
     const { data: profiles, error } = await supabase
       .from('profiles')
-      .select('id, username, display_name, role, password_hash, is_active, created_at');
+      .select(
+        'id, username, display_name, role, password_hash, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
+      );
 
     if (error || !profiles) {
       return NextResponse.json({ error: 'Không thể kết nối máy chủ xác thực.' }, { status: 500 });
@@ -60,6 +62,9 @@ export async function POST(req: Request) {
         display_name: matched.display_name || matched.username,
         role,
         is_active: true,
+        can_assign_tasks: role === 'admin' ? true : Boolean(matched.can_assign_tasks),
+        weekly_allowance: Number(matched.weekly_allowance || 0),
+        current_balance: Number(matched.current_balance || 0),
         created_at: matched.created_at,
       },
     });
