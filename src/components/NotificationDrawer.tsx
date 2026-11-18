@@ -26,11 +26,17 @@ export function NotificationDrawer({
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4 bg-black/50 backdrop-blur-[2px]">
-      <div className="w-full max-w-lg bg-white dark:bg-[#1E293B] border-t md:border border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl md:rounded-2xl p-5 pb-7 md:pb-5 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center pt-[calc(env(safe-area-inset-top,20px)+12px)] md:p-4 bg-black/55 backdrop-blur-[2px]"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-lg bg-white dark:bg-[#0B1215] border-t md:border border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl md:rounded-2xl px-5 pt-4 pb-[max(1.75rem,env(safe-area-inset-bottom))] md:p-5 shadow-2xl space-y-4 max-h-full md:max-h-[85vh] flex flex-col"
+      >
         <div className="w-10 h-1 rounded-full bg-[#D1D5DB] dark:bg-[#475569] mx-auto -mt-1 shrink-0 md:hidden" />
 
-        <div className="flex items-center justify-between gap-2 shrink-0">
+        <div className="bg-white dark:bg-[#0B1215] z-10 flex items-center justify-between gap-2 shrink-0">
           <div>
             <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#059669]">
               <Bell className="w-3.5 h-3.5" />
@@ -56,7 +62,7 @@ export function NotificationDrawer({
               type="button"
               onClick={onClose}
               aria-label="Đóng"
-              className="w-10 h-10 rounded-xl bg-[#F3F4F6] dark:bg-[#0F172A] flex items-center justify-center text-[#6B7280]"
+              className="w-11 h-11 rounded-full bg-[#F3F4F6] dark:bg-[#1E293B] flex items-center justify-center text-[#374151] dark:text-[#F8FAFC] shrink-0"
             >
               <X className="w-5 h-5" />
             </button>

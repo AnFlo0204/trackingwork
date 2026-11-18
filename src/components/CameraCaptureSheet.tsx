@@ -344,10 +344,16 @@ export function CameraCaptureSheet({
             : 'Xác thực Camera trực tiếp';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4 bg-black/50 backdrop-blur-[2px]">
-      <div className="w-full max-w-lg bg-white dark:bg-[#1E293B] border-t md:border border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl md:rounded-2xl p-5 pb-7 md:pb-5 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+    <div
+      onClick={handleClose}
+      className="fixed inset-0 z-50 flex items-end md:items-center justify-center pt-[calc(env(safe-area-inset-top,20px)+12px)] md:p-4 bg-black/55 backdrop-blur-[2px]"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-lg bg-white dark:bg-[#0B1215] border-t md:border border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl md:rounded-2xl px-5 pt-4 pb-[max(1.75rem,env(safe-area-inset-bottom))] md:p-5 shadow-2xl space-y-4 max-h-full overflow-y-auto"
+      >
         <div className="w-10 h-1 rounded-full bg-[#D1D5DB] dark:bg-[#475569] mx-auto -mt-1 md:hidden" />
-        <div className="flex items-start justify-between gap-3">
+        <div className="sticky top-0 z-20 bg-white dark:bg-[#0B1215] pb-2 flex items-start justify-between gap-3">
           <div>
             <div
               className={`inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${

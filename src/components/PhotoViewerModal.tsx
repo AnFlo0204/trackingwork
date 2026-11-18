@@ -50,11 +50,13 @@ export function PhotoViewerModal({
   const [viewMode, setViewMode] = useState<'after' | 'before' | 'split'>('after');
   const [confirmMode, setConfirmMode] = useState<'none' | 'reject' | 'rework'>('none');
   const [moderating, setModerating] = useState(false);
+  const [swipeCloseY, setSwipeCloseY] = useState(0);
 
   const pinchStartDist = useRef<number | null>(null);
   const pinchStartScale = useRef(1);
   const panStart = useRef<{ x: number; y: number } | null>(null);
   const offsetRef = useRef({ x: 0, y: 0 });
+  const swipeStartY = useRef<number | null>(null);
 
   const currentIndex = log ? allLogs.findIndex((item) => item.id === log.id) : -1;
   const hasPrev = currentIndex > 0;
@@ -67,6 +69,7 @@ export function PhotoViewerModal({
     setViewMode(log?.before_proof_url ? 'split' : 'after');
     setConfirmMode('none');
     setModerating(false);
+    setSwipeCloseY(0);
   }, [log?.id, log?.before_proof_url]);
 
   // Keyboard navigation: Esc to close, ArrowLeft / ArrowRight to browse photos
@@ -98,11 +101,15 @@ export function PhotoViewerModal({
       pinchStartDist.current = Math.hypot(dx, dy);
       pinchStartScale.current = scale;
       panStart.current = null;
+      swipeStartY.current = null;
     } else if (e.touches.length === 1 && scale > 1) {
       panStart.current = {
         x: e.touches[0].clientX - offsetRef.current.x,
         y: e.touches[0].clientY - offsetRef.current.y,
       };
+      swipeStartY.current = null;
+    } else if (e.touches.length === 1 && scale === 1) {
+      swipeStartY.current = e.touches[0].clientY;
     }
   }
 
@@ -126,12 +133,24 @@ export function PhotoViewerModal({
       };
       offsetRef.current = clamped;
       setOffset(clamped);
+    } else if (e.touches.length === 1 && swipeStartY.current !== null && scale === 1) {
+      const dy = e.touches[0].clientY - swipeStartY.current;
+      if (dy > 0) {
+        setSwipeCloseY(Math.min(180, dy));
+      }
     }
   }
 
   function handleTouchEnd() {
+    if (swipeCloseY > 85) {
+      setSwipeCloseY(0);
+      onClose();
+    } else {
+      setSwipeCloseY(0);
+    }
     pinchStartDist.current = null;
     panStart.current = null;
+    swipeStartY.current = null;
   }
 
   function resetZoom() {
@@ -158,10 +177,15 @@ export function PhotoViewerModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full h-full md:h-auto md:max-h-[90vh] md:max-w-3xl bg-black md:bg-[#0F172A] md:border md:border-[#334155] md:rounded-2xl md:shadow-2xl flex flex-col overflow-hidden"
+        style={
+          swipeCloseY > 0
+            ? { transform: `translateY(${swipeCloseY}px)`, transition: 'none' }
+            : { transition: 'transform 150ms ease-out' }
+        }
+        className="w-full h-full md:h-auto md:max-h-[90vh] md:max-w-3xl bg-[#0B1215] md:bg-[#0F172A] md:border md:border-[#334155] md:rounded-2xl md:shadow-2xl flex flex-col overflow-hidden"
       >
-        {/* Top Bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 text-white shrink-0">
+        {/* Top Bar — Solid opaque + iOS/Android PWA Safe-Area Top Padding */}
+        <div className="relative z-50 bg-[#0B1215] md:bg-[#0F172A] flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,20px)+12px)] md:pt-3 pb-3 border-b border-white/10 text-white shrink-0">
           <div className="min-w-0 pr-3">
             <div className="flex items-center gap-2 flex-wrap">
               <p className="text-sm md:text-base font-semibold truncate">{log.chore_title}</p>
@@ -172,7 +196,7 @@ export function PhotoViewerModal({
                 </span>
               )}
             </div>
-            <p className="text-xs text-white/70 tabular-nums truncate">
+            <p className="text-xs text-white/75 tabular-nums truncate">
               {log.member_name} • {formatIsoToVn(log.server_timestamp)}
               {log.points_awarded > 0 ? ` • +${log.points_awarded} điểm` : ''}
             </p>
@@ -185,7 +209,7 @@ export function PhotoViewerModal({
                   disabled={!hasPrev}
                   onClick={() => hasPrev && onSelectLog(allLogs[currentIndex - 1])}
                   aria-label="Ảnh trước đó"
-                  className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 flex items-center justify-center"
+                  className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 flex items-center justify-center"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
@@ -194,7 +218,7 @@ export function PhotoViewerModal({
                   disabled={!hasNext}
                   onClick={() => hasNext && onSelectLog(allLogs[currentIndex + 1])}
                   aria-label="Ảnh tiếp theo"
-                  className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 flex items-center justify-center"
+                  className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 flex items-center justify-center"
                 >
                   <ChevronRight className="w-5 h-5" />
                 </button>
@@ -204,7 +228,7 @@ export function PhotoViewerModal({
               type="button"
               onClick={onClose}
               aria-label="Đóng ảnh"
-              className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center"
+              className="w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center active:scale-95 transition"
             >
               <X className="w-5 h-5" />
             </button>
@@ -297,7 +321,7 @@ export function PhotoViewerModal({
         </div>
 
         {/* Bottom Controls */}
-        <div className="px-4 py-3 border-t border-white/10 bg-black/80 space-y-2.5 shrink-0">
+        <div className="px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3 border-t border-white/10 bg-[#0B1215] space-y-2.5 shrink-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5">
               <button

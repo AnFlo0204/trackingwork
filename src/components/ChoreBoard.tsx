@@ -806,11 +806,11 @@ export function ChoreBoard({
       {detailTarget && (
         <div
           onClick={() => setDetailTarget(null)}
-          className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4 bg-black/55 backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex items-end md:items-center justify-center pt-[calc(env(safe-area-inset-top,20px)+12px)] md:p-4 bg-black/55 backdrop-blur-[2px]"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white dark:bg-[#1E293B] border-t md:border border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl md:rounded-2xl p-5 pb-7 md:pb-5 shadow-2xl space-y-4"
+            className="w-full max-w-md bg-white dark:bg-[#0B1215] border-t md:border border-[#E5E7EB] dark:border-[#334155] rounded-t-3xl md:rounded-2xl px-5 pt-4 pb-[max(1.75rem,env(safe-area-inset-bottom))] md:p-5 shadow-2xl space-y-4 max-h-full overflow-y-auto"
           >
             <div className="w-10 h-1 rounded-full bg-[#D1D5DB] dark:bg-[#475569] mx-auto -mt-1 md:hidden" />
 
@@ -829,7 +829,7 @@ export function ChoreBoard({
                 type="button"
                 onClick={() => setDetailTarget(null)}
                 aria-label="Đóng"
-                className="w-10 h-10 rounded-xl bg-[#F3F4F6] dark:bg-[#0F172A] flex items-center justify-center text-[#6B7280]"
+                className="w-11 h-11 rounded-full bg-[#F3F4F6] dark:bg-[#1E293B] flex items-center justify-center text-[#374151] dark:text-[#F8FAFC] shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
