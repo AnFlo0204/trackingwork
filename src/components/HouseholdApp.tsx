@@ -578,40 +578,31 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
 
         {/* Main Content Area (Mobile Full-Width / Tablet & Desktop Remaining Space) */}
         <div className="flex-1 min-w-0 flex flex-col">
-          {/* Mobile Compact Sticky Header (< 768px) */}
-          <header className="md:hidden sticky top-0 z-30 bg-[#F8F9FA]/95 dark:bg-[#0F172A]/95 backdrop-blur-sm border-b border-[#E5E7EB] dark:border-[#334155] px-4 py-3 flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <h1 className="text-base font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
-                {pageTitle}
-              </h1>
-              <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] truncate">
-                Xin chào,{' '}
-                <span className="font-semibold text-[#059669]">{data.me.display_name}</span>
-                {isDelegatedAssigner && (
-                  <span className="ml-1.5 text-[10px] font-semibold text-[#D97706]">
-                    • Người giao việc
-                  </span>
-                )}
-              </p>
-            </div>
+          {/* Mobile Compact Sticky Header (< 768px) — Solid opaque + Safe Area Inset + 44x44px tap targets */}
+          <header className="md:hidden sticky top-0 z-50 bg-white dark:bg-[#0B1215] border-b border-[#E5E7EB] dark:border-[#334155] px-4 pt-[calc(env(safe-area-inset-top,16px)+12px)] pb-3 flex items-center justify-between gap-2 shadow-sm">
+            <button
+              type="button"
+              onClick={() => {
+                haptic(10);
+                setWalletOpen(true);
+              }}
+              className="min-w-0 flex items-center gap-2.5 min-h-[44px] text-left active:opacity-80"
+            >
+              <div className="w-10 h-10 rounded-full bg-[#ECFDF5] dark:bg-[#064E3B] border border-[#A7F3D0] dark:border-[#047857] text-xs font-bold text-[#059669] dark:text-[#34D399] flex items-center justify-center shrink-0">
+                {getInitials(data.me.display_name)}
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate leading-tight">
+                  {pageTitle}
+                </h1>
+                <p className="text-[11px] text-[#059669] dark:text-[#34D399] font-semibold truncate">
+                  {data.me.display_name}
+                  {isDelegatedAssigner ? ' • Giao việc' : ''}
+                </p>
+              </div>
+            </button>
 
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  haptic(10);
-                  setTab('audit');
-                }}
-                aria-label="Mở nhật ký Minh bạch"
-                className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
-                  tab === 'audit'
-                    ? 'border-[#059669] bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669]'
-                    : 'border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-[#6B7280] dark:text-[#CBD5E1]'
-                }`}
-              >
-                <Lock className="w-4 h-4" />
-              </button>
-
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -619,40 +610,43 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   setNotifOpen(true);
                 }}
                 aria-label="Thông báo"
-                className="relative w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
+                className="relative w-11 h-11 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#1E293B] flex items-center justify-center text-[#374151] dark:text-[#CBD5E1] active:scale-95 transition"
               >
                 <Bell className="w-4 h-4" />
                 {unreadNotifs > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#DC2626] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                  <span className="absolute top-1 right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#DC2626] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
                     {unreadNotifs > 9 ? '9+' : unreadNotifs}
                   </span>
                 )}
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  haptic(10);
-                  void mutate();
-                  void syncOfflineQueue();
-                }}
-                aria-label="Làm mới"
-                className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
-              >
-                <RefreshCw className={`w-4 h-4 ${isValidating ? 'animate-spin text-[#059669]' : ''}`} />
-              </button>
-              <button
-                type="button"
                 onClick={() => setDarkMode((d) => !d)}
                 aria-label="Đổi giao diện sáng tối"
-                className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
+                className="w-11 h-11 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#1E293B] flex items-center justify-center text-[#374151] dark:text-[#CBD5E1] active:scale-95 transition"
               >
                 {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
               <button
                 type="button"
+                onClick={() => {
+                  haptic(10);
+                  setTab(isAdmin ? 'admin' : 'audit');
+                }}
+                aria-label={isAdmin ? 'Quản trị Admin' : 'Nhật ký Minh bạch'}
+                className={`w-11 h-11 rounded-xl border flex items-center justify-center active:scale-95 transition ${
+                  tab === 'admin' || tab === 'audit'
+                    ? 'border-[#059669] bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669]'
+                    : 'border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#1E293B] text-[#374151] dark:text-[#CBD5E1]'
+                }`}
+              >
+                {isAdmin ? <Shield className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+              </button>
+              <button
+                type="button"
                 onClick={handleLogout}
                 aria-label="Đăng xuất"
-                className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1]"
+                className="w-11 h-11 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#1E293B] flex items-center justify-center text-[#374151] dark:text-[#CBD5E1] active:scale-95 transition"
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -660,7 +654,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
           </header>
 
           {/* Desktop & iPad Top Title Strip (>= 768px) */}
-          <header className="hidden md:flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB] dark:border-[#334155] bg-white/60 dark:bg-[#0F172A]/80 backdrop-blur-sm sticky top-0 z-20">
+          <header className="hidden md:flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#0B1215] sticky top-0 z-40">
             <div>
               <h1 className="text-xl font-bold tracking-tight">{pageTitle}</h1>
               <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
@@ -722,6 +716,8 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                 featureFlags={data.featureFlags}
                 weeklyFundConfig={data.weeklyFundConfig}
                 serverNowIso={data.serverNowIso}
+                canAwardBonus={canAwardBonus}
+                onAwardBonus={(t) => setBonusTarget(t)}
                 onStartCapture={(target) => setCaptureTarget(target)}
                 onInspectPhoto={(log) => setInspectingLog(log)}
                 onOpenWallet={() => setWalletOpen(true)}
