@@ -380,16 +380,16 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
 
   const pageTitle =
     tab === 'chores'
-      ? 'Bảng việc nhà'
+      ? 'Việc nhà'
       : tab === 'history'
-        ? 'Nhật ký hoạt động'
+        ? 'Lịch sử'
         : tab === 'audit'
-          ? 'Nhật ký Minh bạch'
+          ? 'Minh bạch'
           : tab === 'stats'
-            ? 'Thống kê & Xếp hạng'
+            ? 'Thống kê'
             : tab === 'assign'
-              ? 'Giao việc thành viên'
-              : 'Quản trị hệ thống';
+              ? 'Giao việc'
+              : 'Quản trị';
 
   if (checkingSession) {
     return (
@@ -441,31 +441,29 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
           <div className="space-y-5">
             {/* Brand Logo */}
             <div className="flex items-center gap-2.5 px-1.5">
-              <div className="w-9 h-9 rounded-xl bg-[#059669] text-white flex items-center justify-center shadow-sm shrink-0">
-                <CheckSquare className="w-5 h-5" strokeWidth={2.2} />
+              <div className="w-8 h-8 rounded-xl bg-[#059669] text-white flex items-center justify-center shadow-sm shrink-0">
+                <CheckSquare className="w-4 h-4" strokeWidth={2.2} />
               </div>
-              <div className="min-w-0">
-                <p className="text-sm font-bold tracking-tight truncate">trackingwork</p>
-                <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] truncate">
-                  Việc nhà minh bạch
-                </p>
-              </div>
+              <p className="text-sm font-bold tracking-tight truncate">trackingwork</p>
             </div>
 
-            {/* Profile Badge */}
-            <div className="rounded-2xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] p-3 flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-full bg-[#059669]/15 text-[#059669] text-xs font-bold flex items-center justify-center shrink-0">
+            {/* Profile Badge (no duplicate role text) */}
+            <div className="rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] p-2.5 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-[#059669]/15 text-[#059669] text-xs font-bold flex items-center justify-center shrink-0">
                 {getInitials(data.me.display_name)}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1 flex items-center justify-between gap-1.5">
                 <p className="text-xs font-bold truncate">{data.me.display_name}</p>
-                <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] truncate">
-                  {isAdmin
-                    ? 'Quản trị viên'
-                    : isDelegatedAssigner
-                      ? 'Người giao việc'
-                      : 'Thành viên'}
-                </p>
+                {isAdmin && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] shrink-0">
+                    Admin
+                  </span>
+                )}
+                {isDelegatedAssigner && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#FFFBEB] dark:bg-[#451A03] text-[#D97706] shrink-0">
+                    Giao việc
+                  </span>
+                )}
               </div>
             </div>
 
@@ -474,17 +472,15 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               <button
                 type="button"
                 onClick={() => setWalletOpen(true)}
-                className="w-full text-left rounded-2xl bg-[#ECFDF5]/60 dark:bg-[#064E3B]/30 border border-[#A7F3D0] dark:border-[#047857] p-3 space-y-0.5 hover:border-[#059669] transition"
+                className="w-full text-left rounded-xl bg-[#ECFDF5]/60 dark:bg-[#064E3B]/30 border border-[#A7F3D0] dark:border-[#047857] px-3 py-2.5 flex items-center justify-between hover:border-[#059669] transition"
               >
-                <div className="flex items-center justify-between text-[11px] font-semibold text-[#047857] dark:text-[#6EE7B7]">
-                  <span className="flex items-center gap-1">
-                    <Wallet className="w-3.5 h-3.5" />
-                    Ví quỹ tuần
-                  </span>
-                </div>
-                <p className="text-sm font-bold text-[#065F46] dark:text-[#A7F3D0] tabular-nums">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-[#047857] dark:text-[#6EE7B7]">
+                  <Wallet className="w-3.5 h-3.5" />
+                  Ví quỹ
+                </span>
+                <span className="text-xs font-bold text-[#065F46] dark:text-[#A7F3D0] tabular-nums">
                   {data.me.current_balance.toLocaleString('vi-VN')}đ
-                </p>
+                </span>
               </button>
             )}
 
@@ -502,7 +498,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                     icon: ClipboardList,
                     show: isDelegatedAssigner,
                   },
-                  { key: 'admin', label: 'Quản trị (Admin)', icon: Shield, show: isAdmin },
+                  { key: 'admin', label: 'Quản trị', icon: Shield, show: isAdmin },
                 ] as const
               )
                 .filter((item) => item.show)
@@ -514,7 +510,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                       key={item.key}
                       type="button"
                       onClick={() => setTab(item.key)}
-                      className={`w-full h-11 px-3 rounded-xl text-sm font-semibold flex items-center gap-2.5 transition ${
+                      className={`w-full h-10 px-3 rounded-xl text-sm font-semibold flex items-center gap-2.5 transition ${
                         active
                           ? 'bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399]'
                           : 'text-[#6B7280] dark:text-[#94A3B8] hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A]'
@@ -528,12 +524,13 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
             </nav>
           </div>
 
-          {/* Sidebar Bottom Actions */}
-          <div className="space-y-2 pt-3 border-t border-[#E5E7EB] dark:border-[#334155]">
-            <div className="grid grid-cols-3 gap-1.5">
+          {/* Sidebar Compact Icon-Only Footer Actions */}
+          <div className="pt-3 border-t border-[#E5E7EB] dark:border-[#334155]">
+            <div className="grid grid-cols-4 gap-1.5">
               <button
                 type="button"
                 onClick={() => setNotifOpen(true)}
+                aria-label="Thông báo"
                 title="Thông báo"
                 className="relative h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1] hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A]"
               >
@@ -550,6 +547,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                   void mutate();
                   void syncOfflineQueue();
                 }}
+                aria-label="Làm mới"
                 title="Làm mới"
                 className="h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1] hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A]"
               >
@@ -558,21 +556,22 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               <button
                 type="button"
                 onClick={() => setDarkMode((d) => !d)}
+                aria-label="Giao diện"
                 title="Đổi giao diện Sáng/Tối"
                 className="h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1] hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A]"
               >
                 {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                aria-label="Đăng xuất"
+                title="Đăng xuất"
+                className="h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#6B7280] dark:text-[#CBD5E1] hover:text-[#DC2626] hover:bg-[#FEF2F2] dark:hover:bg-[#450A0A]"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
-
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="w-full h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#6B7280] dark:text-[#CBD5E1] hover:text-[#DC2626] flex items-center justify-center gap-1.5"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Đăng xuất
-            </button>
           </div>
         </aside>
 
@@ -654,19 +653,11 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
           </header>
 
           {/* Desktop & iPad Top Title Strip (>= 768px) */}
-          <header className="hidden md:flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#0B1215] sticky top-0 z-40">
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">{pageTitle}</h1>
-              <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
-                Giờ máy chủ Việt Nam: {data.serverVnFormatted}
-              </p>
-            </div>
+          <header className="hidden md:flex items-center justify-between px-6 py-3.5 border-b border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#0B1215] sticky top-0 z-40">
+            <h1 className="text-lg font-bold tracking-tight">{pageTitle}</h1>
             <div className="flex items-center gap-2">
               {isValidating && (
-                <span className="text-xs font-medium text-[#059669] flex items-center gap-1">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  Đang đồng bộ...
-                </span>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#059669]" />
               )}
             </div>
           </header>
@@ -748,34 +739,10 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
             )}
 
             {tab === 'audit' && (
-              <div className="space-y-3.5">
-                <div className="md:hidden">
-                  <ActivityHistory
-                    logs={data.logs}
-                    logsNextCursor={data.logsNextCursor}
-                    auditLogs={data.auditLogs}
-                    auditNextCursor={data.auditNextCursor}
-                    chores={data.chores}
-                    members={data.members}
-                    subView="audit"
-                    onChangeSubView={(v) => setTab(v === 'audit' ? 'audit' : 'history')}
-                    featureFlags={data.featureFlags}
-                    isAdmin={isAdmin}
-                    canAwardBonus={canAwardBonus}
-                    currentUserId={data.me.id}
-                    onInspectPhoto={(log) => setInspectingLog(log)}
-                    onModerate={handleModerateLog}
-                    onReact={handleReactLog}
-                    onAwardBonus={(t) => setBonusTarget(t)}
-                  />
-                </div>
-                <div className="hidden md:block">
-                  <AuditLogView
-                    initialItems={data.auditLogs}
-                    initialNextCursor={data.auditNextCursor}
-                  />
-                </div>
-              </div>
+              <AuditLogView
+                initialItems={data.auditLogs}
+                initialNextCursor={data.auditNextCursor}
+              />
             )}
 
             {tab === 'stats' && showStatsTab && (
@@ -836,44 +803,50 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
         </div>
       </div>
 
-      {/* Mobile Fixed Bottom Tab Navigation (< 768px) */}
+      {/* Mobile Fixed Bottom Tab Navigation (< 768px) — Icon + 1-word label + iOS safe-area */}
       <nav
         aria-label="Điều hướng di động"
-        className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 dark:bg-[#1E293B]/95 backdrop-blur-sm border-t border-[#E5E7EB] dark:border-[#334155] px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white dark:bg-[#0B1215] border-t border-[#E5E7EB] dark:border-[#334155] px-1.5 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
       >
-        <div className="flex items-center justify-around gap-1">
+        <div className="flex items-center justify-around gap-0.5">
           <button
             type="button"
             onClick={() => setTab('chores')}
-            className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+            className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition ${
               tab === 'chores' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
             }`}
           >
             <CheckSquare className="w-5 h-5" strokeWidth={tab === 'chores' ? 2.25 : 1.75} />
-            Việc nhà
+            Việc
           </button>
 
           <button
             type="button"
             onClick={() => setTab('history')}
-            className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
-              tab === 'history' || tab === 'audit'
-                ? 'text-[#059669]'
-                : 'text-[#6B7280] dark:text-[#94A3B8]'
+            className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition ${
+              tab === 'history' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
             }`}
           >
-            <History
-              className="w-5 h-5"
-              strokeWidth={tab === 'history' || tab === 'audit' ? 2.25 : 1.75}
-            />
+            <History className="w-5 h-5" strokeWidth={tab === 'history' ? 2.25 : 1.75} />
             Lịch sử
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab('audit')}
+            className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition ${
+              tab === 'audit' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
+            }`}
+          >
+            <Lock className="w-5 h-5" strokeWidth={tab === 'audit' ? 2.25 : 1.75} />
+            Minh bạch
           </button>
 
           {showStatsTab && (
             <button
               type="button"
               onClick={() => setTab('stats')}
-              className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+              className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition ${
                 tab === 'stats' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
               }`}
             >
@@ -886,7 +859,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
             <button
               type="button"
               onClick={() => setTab('assign')}
-              className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+              className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition ${
                 tab === 'assign' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
               }`}
             >
@@ -899,12 +872,12 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
             <button
               type="button"
               onClick={() => setTab('admin')}
-              className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition ${
+              className={`flex-1 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition ${
                 tab === 'admin' ? 'text-[#059669]' : 'text-[#6B7280] dark:text-[#94A3B8]'
               }`}
             >
               <Shield className="w-5 h-5" strokeWidth={tab === 'admin' ? 2.25 : 1.75} />
-              Admin
+              Quản trị
             </button>
           )}
         </div>

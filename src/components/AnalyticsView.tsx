@@ -6,10 +6,11 @@ import {
   Award,
   BarChart3,
   CheckCircle2,
+  ChevronDown,
   Coins,
-  FileSpreadsheet,
   Plus,
   Trash2,
+  Wallet,
 } from 'lucide-react';
 import type {
   Chore,
@@ -53,6 +54,14 @@ const CHART_PALETTE = [
   '#475569',
 ];
 
+function formatCompactK(amount: number): string {
+  const abs = Math.abs(Math.round(amount));
+  if (abs >= 1000 && abs % 1000 === 0) {
+    return `${abs / 1000}k`;
+  }
+  return `${abs.toLocaleString('vi-VN')}đ`;
+}
+
 export function AnalyticsView({
   chores,
   logs,
@@ -67,6 +76,7 @@ export function AnalyticsView({
   meId,
   onRefresh,
 }: AnalyticsViewProps) {
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [penaltyFormOpen, setPenaltyFormOpen] = useState(false);
   const [penProfileId, setPenProfileId] = useState('');
   const [penChoreId, setPenChoreId] = useState('');
@@ -208,65 +218,110 @@ export function AnalyticsView({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-      {/* Weekly Settlement Report (Bảng quyết toán cuối tuần) */}
+      {/* 1. Weekly Settlement — Single-Line Rows with Smart Delta Pills & Tap-to-Expand */}
       {weeklyFundConfig.enabled && (
-        <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
+        <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-2">
+          <div className="flex items-center justify-between gap-2 pb-1">
             <div className="flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-[#059669]" />
-              <h2 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
-                Bảng quyết toán quỹ tuần
-              </h2>
+              <Wallet className="w-4 h-4 text-[#059669]" />
+              <h2 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">Quỹ tuần</h2>
             </div>
-            <span className="text-xs font-semibold text-[#D97706] tabular-nums">
+            <span className="px-2 py-0.5 rounded-full bg-[#FFFBEB] dark:bg-[#451A03] text-[11px] font-semibold text-[#B45309] dark:text-[#FCD34D] tabular-nums">
               Quỹ chung: {sharedPartyFund.balance.toLocaleString('vi-VN')}đ
             </span>
           </div>
 
           {weeklySettlement.length === 0 ? (
-            <p className="text-xs text-[#6B7280] dark:text-[#94A3B8]">
-              Chưa có thành viên nào được thiết lập định mức quỹ tuần.
-            </p>
+            <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] py-3">Trống</p>
           ) : (
             <div className="divide-y divide-[#F3F4F6] dark:divide-[#334155]">
-              {weeklySettlement.map((row) => (
-                <div key={row.profile_id} className="py-2.5 space-y-1 tabular-nums">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
-                      {row.display_name}
-                    </span>
-                    <span className="text-sm font-bold text-[#059669] dark:text-[#34D399]">
-                      Nhận: {row.current_balance.toLocaleString('vi-VN')}đ
-                    </span>
+              {weeklySettlement.map((row) => {
+                const plusDelta =
+                  (row.total_bonuses || 0) +
+                  (row.total_bounty_earned || 0) +
+                  (row.total_refunds || 0);
+                const minusDelta =
+                  (row.total_penalties || 0) + (row.total_bounty_paid || 0);
+                const isExpanded = expandedRowId === row.profile_id;
+
+                return (
+                  <div key={row.profile_id} className="border-[#F3F4F6] dark:border-[#334155]">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedRowId((prev) => (prev === row.profile_id ? null : row.profile_id))
+                      }
+                      className="w-full py-3 flex items-center justify-between gap-2 text-left hover:bg-[#F8F9FA]/60 dark:hover:bg-[#0F172A]/40 -mx-1 px-1 rounded-lg transition"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-8 h-8 rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] text-[11px] font-bold flex items-center justify-center shrink-0">
+                          {getInitials(row.display_name)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate leading-tight">
+                            {row.display_name}
+                          </p>
+                          <p className="text-[11px] text-[#9CA3AF] dark:text-[#64748B] tabular-nums">
+                            Gốc {formatCompactK(row.weekly_allowance)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Middle Smart Delta Pills (blank if all 0) */}
+                      <div className="flex items-center gap-1 shrink-0 tabular-nums">
+                        {plusDelta > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] text-[11px] font-bold">
+                            +{formatCompactK(plusDelta)}
+                          </span>
+                        )}
+                        {minusDelta > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#FEF2F2] dark:bg-[#450A0A] text-[#DC2626] dark:text-[#F87171] text-[11px] font-bold">
+                            -{formatCompactK(minusDelta)}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Right Bold Net Payout */}
+                      <div className="flex items-center gap-1 shrink-0 tabular-nums">
+                        <span className="text-sm font-bold text-[#059669] dark:text-[#34D399]">
+                          {row.current_balance.toLocaleString('vi-VN')}đ
+                        </span>
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 text-[#9CA3AF] transition-transform ${
+                            isExpanded ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="pb-2.5 pl-10 pr-1 text-[11px] text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
+                        Gốc {row.weekly_allowance.toLocaleString('vi-VN')}đ • Thưởng +
+                        {(row.total_bonuses || 0).toLocaleString('vi-VN')}đ • Phạt{' '}
+                        {(row.total_penalties || 0).toLocaleString('vi-VN')}đ
+                        {row.total_bounty_earned > 0
+                          ? ` • Làm hộ +${row.total_bounty_earned.toLocaleString('vi-VN')}đ`
+                          : ''}
+                        {row.total_bounty_paid > 0
+                          ? ` • Chi hộ -${row.total_bounty_paid.toLocaleString('vi-VN')}đ`
+                          : ''}
+                      </div>
+                    )}
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px] text-[#6B7280] dark:text-[#94A3B8]">
-                    <span>Quỹ tuần: {row.weekly_allowance.toLocaleString('vi-VN')}đ</span>
-                    <span className="text-[#D97706] dark:text-[#FCD34D] font-semibold">
-                      Được thưởng (+): +{(row.total_bonuses || 0).toLocaleString('vi-VN')}đ
-                    </span>
-                    <span className="text-[#DC2626]">
-                      Bị trừ (-): -{(row.total_penalties + row.total_bounty_paid).toLocaleString('vi-VN')}đ
-                    </span>
-                    <span className="text-[#059669]">
-                      Làm hộ: +{row.total_bounty_earned.toLocaleString('vi-VN')}đ
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
       )}
 
-      {/* 1. Leaderboard (Gamification) */}
+      {/* 2. Leaderboard */}
       {featureFlags.gamification && (
-        <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
+        <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-2">
+          <div className="flex items-center justify-between pb-1">
             <div className="flex items-center gap-2">
               <Award className="w-4 h-4 text-[#059669]" />
-              <h2 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
-                Bảng xếp hạng điểm thưởng
-              </h2>
+              <h2 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">Xếp hạng</h2>
             </div>
             <span className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
               {totalLogs} lượt
@@ -274,9 +329,7 @@ export function AnalyticsView({
           </div>
 
           {memberStats.length === 0 ? (
-            <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] py-2">
-              Chưa có thành viên nào trong bảng xếp hạng.
-            </p>
+            <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] py-3">Trống</p>
           ) : (
             <div className="divide-y divide-[#F3F4F6] dark:divide-[#334155]">
               {memberStats.map((entry, idx) => {
@@ -307,11 +360,11 @@ export function AnalyticsView({
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate">
-                          {entry.profile.display_name}{' '}
-                          {isMe && <span className="text-xs text-[#059669]">(Bạn)</span>}
+                          {entry.profile.display_name}
+                          {isMe && <span className="text-xs text-[#059669] ml-1">(Bạn)</span>}
                         </p>
                         <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
-                          {entry.count} lần hoàn thành
+                          {entry.count} lượt
                         </p>
                       </div>
                     </div>
@@ -326,23 +379,19 @@ export function AnalyticsView({
         </section>
       )}
 
-      {/* 2. Visual Analytics Dashboard */}
+      {/* 3. Visual Contribution Donut & Frequency */}
       {featureFlags.analytics && (
         <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-4">
           <div className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-[#059669]" />
-            <h2 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
-              Thống kê đóng góp trực quan
-            </h2>
+            <h2 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">Đóng góp</h2>
           </div>
 
           {donutSegments.length === 0 ? (
-            <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] py-2">
-              Chưa có dữ liệu đóng góp để hiển thị biểu đồ.
-            </p>
+            <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] py-2">Trống</p>
           ) : (
             <div className="flex items-center gap-4">
-              <div className="relative w-28 h-28 shrink-0">
+              <div className="relative w-24 h-24 shrink-0">
                 <svg viewBox="0 0 110 110" className="w-full h-full -rotate-90">
                   <circle
                     cx="55"
@@ -368,11 +417,11 @@ export function AnalyticsView({
                   ))}
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-lg font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums leading-none">
+                  <span className="text-base font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums leading-none">
                     {totalLogs}
                   </span>
                   <span className="text-[10px] text-[#6B7280] dark:text-[#94A3B8] mt-0.5">
-                    Tổng lượt
+                    Lượt
                   </span>
                 </div>
               </div>
@@ -399,19 +448,19 @@ export function AnalyticsView({
           )}
 
           {choreStats.length > 0 && (
-            <div className="pt-2 border-t border-[#F3F4F6] dark:border-[#334155] space-y-2.5">
+            <div className="pt-3 border-t border-[#F3F4F6] dark:border-[#334155] space-y-2.5">
               <p className="text-xs font-semibold text-[#6B7280] dark:text-[#94A3B8] uppercase tracking-wide">
-                Tần suất theo đầu việc
+                Theo việc
               </p>
               {choreStats.map((c) => (
                 <div key={c.title} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-medium text-[#111827] dark:text-[#F8FAFC]">{c.title}</span>
                     <span className="tabular-nums text-[#6B7280] dark:text-[#94A3B8]">
-                      {c.count} lần
+                      {c.count}
                     </span>
                   </div>
-                  <div className="h-2 rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] overflow-hidden">
+                  <div className="h-1.5 rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] overflow-hidden">
                     <div
                       className="h-full rounded-full bg-[#059669]"
                       style={{ width: `${Math.round((c.count / maxChoreCount) * 100)}%` }}
@@ -424,21 +473,19 @@ export function AnalyticsView({
         </section>
       )}
 
-      {/* 3. Penalty & Shared Fund Tracker */}
+      {/* 4. Penalty Tracker */}
       {featureFlags.penalty_fund && (
-        <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3.5">
+        <section className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Coins className="w-4 h-4 text-[#D97706]" />
-              <h2 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">
-                Quỹ phạt & Nhắc nhở
-              </h2>
+              <h2 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC]">Quỹ phạt</h2>
             </div>
             {isAdmin && (
               <button
                 type="button"
                 onClick={() => setPenaltyFormOpen((o) => !o)}
-                className="h-9 px-3 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-semibold inline-flex items-center gap-1"
+                className="h-8 px-2.5 rounded-lg bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-semibold inline-flex items-center gap-1"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Ghi phạt
@@ -446,51 +493,42 @@ export function AnalyticsView({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="rounded-xl bg-[#FEF3C7]/60 dark:bg-[#451A03]/50 border border-[#FDE68A] dark:border-[#92400E] p-3">
-              <p className="text-[11px] text-[#B45309] dark:text-[#FCD34D] font-medium">
-                Chưa đóng vào quỹ
-              </p>
-              <p className="text-base font-bold text-[#92400E] dark:text-[#FDE68A] tabular-nums mt-0.5">
-                {fundSummary.unpaid.toLocaleString('vi-VN')} đ
-              </p>
+          <div className="grid grid-cols-2 gap-2 text-xs tabular-nums">
+            <div className="rounded-xl bg-[#FEF3C7]/60 dark:bg-[#451A03]/40 px-3 py-2 flex items-center justify-between">
+              <span className="text-[#B45309] dark:text-[#FCD34D]">Chưa đóng</span>
+              <span className="font-bold text-[#92400E] dark:text-[#FDE68A]">
+                {fundSummary.unpaid.toLocaleString('vi-VN')}đ
+              </span>
             </div>
-            <div className="rounded-xl bg-[#ECFDF5]/60 dark:bg-[#064E3B]/40 border border-[#A7F3D0] dark:border-[#047857] p-3">
-              <p className="text-[11px] text-[#059669] dark:text-[#34D399] font-medium">
-                Tổng quỹ đã thu
-              </p>
-              <p className="text-base font-bold text-[#047857] dark:text-[#6EE7B7] tabular-nums mt-0.5">
-                {fundSummary.paid.toLocaleString('vi-VN')} đ
-              </p>
+            <div className="rounded-xl bg-[#ECFDF5]/60 dark:bg-[#064E3B]/40 px-3 py-2 flex items-center justify-between">
+              <span className="text-[#059669] dark:text-[#34D399]">Đã thu</span>
+              <span className="font-bold text-[#047857] dark:text-[#6EE7B7]">
+                {fundSummary.paid.toLocaleString('vi-VN')}đ
+              </span>
             </div>
           </div>
 
           {missedDuties.length > 0 && (
-            <div className="rounded-xl bg-[#FFFBEB] dark:bg-[#451A03]/30 border border-[#FDE68A] dark:border-[#92400E] p-3 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#B45309] dark:text-[#FCD34D]">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                Nhắc nhở việc định kỳ chưa hoàn thành
-              </div>
-              <p className="text-xs text-[#92400E] dark:text-[#FDE68A]">
-                {missedDuties
-                  .map((d) => `${d.title} (${d.frequency === 'daily' ? 'hôm nay' : 'tuần này'})`)
-                  .join(', ')}
-              </p>
+            <div className="rounded-xl bg-[#FFFBEB] dark:bg-[#451A03]/30 px-3 py-2 flex items-center gap-2 text-xs text-[#92400E] dark:text-[#FDE68A]">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">
+                Chưa xong: {missedDuties.map((d) => d.title).join(', ')}
+              </span>
             </div>
           )}
 
           {isAdmin && penaltyFormOpen && (
             <form
               onSubmit={handleAddPenalty}
-              className="rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] p-3 space-y-2.5"
+              className="rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] p-3 space-y-2"
             >
               <select
                 value={penProfileId}
                 onChange={(e) => setPenProfileId(e.target.value)}
                 required
-                className="w-full h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm"
+                className="w-full h-11 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm"
               >
-                <option value="">Chọn thành viên...</option>
+                <option value="">Thành viên...</option>
                 {(nonAdminMembers.length > 0 ? nonAdminMembers : members).map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.display_name}
@@ -506,12 +544,12 @@ export function AnalyticsView({
                   const found = chores.find((c) => c.id === cid);
                   if (found) {
                     setPenAmount(String(found.penalty_amount || 20000));
-                    if (!penReason) setPenReason(`Quên làm việc: ${found.title}`);
+                    if (!penReason) setPenReason(found.title);
                   }
                 }}
-                className="w-full h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm"
+                className="w-full h-11 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm"
               >
-                <option value="">Liên kết việc nhà (tuỳ chọn)</option>
+                <option value="">Đầu việc (tuỳ chọn)</option>
                 {chores.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.title}
@@ -525,30 +563,30 @@ export function AnalyticsView({
                 step={1000}
                 value={penAmount}
                 onChange={(e) => setPenAmount(e.target.value)}
-                placeholder="Số tiền phạt (VNĐ)"
-                className="w-full h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm tabular-nums"
+                placeholder="Số tiền (VNĐ)"
+                className="w-full h-11 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm tabular-nums"
               />
 
               <input
                 type="text"
                 value={penReason}
                 onChange={(e) => setPenReason(e.target.value)}
-                placeholder="Lý do (VD: Quên đổ rác hôm nay)"
+                placeholder="Lý do"
                 required
-                className="w-full h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm"
+                className="w-full h-11 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-sm"
               />
 
               <button
                 type="submit"
                 disabled={submittingPenalty}
-                className="w-full h-12 rounded-xl bg-[#D97706] text-white font-semibold text-sm"
+                className="w-full h-11 rounded-xl bg-[#D97706] text-white font-semibold text-sm"
               >
-                {submittingPenalty ? 'Đang lưu...' : 'Lưu khoản phạt'}
+                {submittingPenalty ? 'Đang lưu...' : 'Lưu'}
               </button>
             </form>
           )}
 
-          {penalties.length > 0 ? (
+          {penalties.length > 0 && (
             <div className="divide-y divide-[#F3F4F6] dark:divide-[#334155]">
               {penalties.map((p) => (
                 <div key={p.id} className="py-2.5 flex items-center justify-between gap-2">
@@ -556,10 +594,10 @@ export function AnalyticsView({
                     <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate">
                       {p.member_name} •{' '}
                       <span className="tabular-nums text-[#D97706]">
-                        {p.amount.toLocaleString('vi-VN')} đ
+                        {p.amount.toLocaleString('vi-VN')}đ
                       </span>
                     </p>
-                    <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] truncate">
+                    <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] truncate tabular-nums">
                       {p.reason} • {formatIsoToVn(p.created_at).slice(0, 10)}
                     </p>
                   </div>
@@ -569,27 +607,27 @@ export function AnalyticsView({
                         <button
                           type="button"
                           onClick={() => togglePenaltyPaid(p)}
-                          className={`h-9 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 ${
+                          className={`h-8 px-2.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1 ${
                             p.status === 'paid'
                               ? 'bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399]'
                               : 'bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D]'
                           }`}
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          {p.status === 'paid' ? 'Đã đóng' : 'Thu tiền'}
+                          {p.status === 'paid' ? 'Đã đóng' : 'Thu'}
                         </button>
                         <button
                           type="button"
                           onClick={() => deletePenalty(p.id)}
-                          aria-label="Xóa khoản phạt"
-                          className="w-9 h-9 rounded-lg text-[#6B7280] hover:text-[#DC2626] flex items-center justify-center"
+                          aria-label="Xóa"
+                          className="w-8 h-8 rounded-lg text-[#6B7280] hover:text-[#DC2626] flex items-center justify-center"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </>
                     ) : (
                       <span
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                        className={`px-2 py-0.5 rounded-lg text-xs font-semibold ${
                           p.status === 'paid'
                             ? 'bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399]'
                             : 'bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D]'
@@ -602,10 +640,6 @@ export function AnalyticsView({
                 </div>
               ))}
             </div>
-          ) : (
-            <p className="text-xs text-[#6B7280] dark:text-[#94A3B8]">
-              Chưa có khoản phạt nào được ghi nhận.
-            </p>
           )}
         </section>
       )}

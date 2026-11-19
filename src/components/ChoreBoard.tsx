@@ -254,104 +254,54 @@ export function ChoreBoard({
   }
 
   const pendingPersonalCount = myAssignments.filter((a) => a.cycle_status === 'pending').length;
-  const progressPct =
-    recurringSummary.total > 0
-      ? Math.round((recurringSummary.done / recurringSummary.total) * 100)
-      : 0;
+  const hasActivePersonal =
+    pendingPersonalCount > 0 || myAssignments.some((a) => a.cycle_status === 'missed');
+  const visibleAssignments = myAssignments.filter(
+    (a) => a.cycle_status === 'pending' || a.cycle_status === 'missed',
+  );
 
   return (
     <div className="space-y-4">
-      {/* Unified Dual-Metric Top Summary Strip (Wallet + Progress, immediate above-the-fold layout) */}
+      {/* Ultra-compact Single-Row Top Strip (Wallet + Progress + Party Fund) */}
       {(weeklyFundConfig.enabled || featureFlags.recurring_tasks || sharedPartyFund.show_banner) && (
-        <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl overflow-hidden shadow-xs">
-          <div className="grid grid-cols-2 divide-x divide-[#F3F4F6] dark:divide-[#334155]">
-            {weeklyFundConfig.enabled ? (
-              <button
-                type="button"
-                onClick={() => {
-                  haptic(10);
-                  onOpenWallet();
-                }}
-                className="p-3.5 text-left hover:bg-[#F8F9FA] dark:hover:bg-[#0F172A]/40 active:opacity-80 transition space-y-1.5"
-              >
-                <div className="flex items-center justify-between gap-1">
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[#6B7280] dark:text-[#94A3B8]">
-                    <Wallet className="w-3.5 h-3.5 text-[#059669]" />
-                    Ví quỹ
-                  </span>
-                  <ChevronRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
-                </div>
-                <div className="flex items-baseline gap-1.5 flex-wrap tabular-nums">
-                  <span className="text-base font-bold text-[#111827] dark:text-[#F8FAFC]">
-                    {me.current_balance.toLocaleString('vi-VN')}đ
-                  </span>
-                  {myBonusTotal > 0 && (
-                    <span className="text-[10px] font-bold text-[#D97706] dark:text-[#FCD34D]">
-                      (+{myBonusTotal.toLocaleString('vi-VN')}đ)
-                    </span>
-                  )}
-                </div>
-                {me.weekly_allowance > 0 && (
-                  <div className="h-1.5 w-full rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        me.current_balance <= 0
-                          ? 'bg-[#DC2626]'
-                          : balancePct < 50
-                            ? 'bg-[#D97706]'
-                            : 'bg-[#059669]'
-                      }`}
-                      style={{ width: `${balancePct}%` }}
-                    />
-                  </div>
-                )}
-              </button>
-            ) : (
-              <div className="p-3.5 flex items-center text-xs text-[#6B7280] dark:text-[#94A3B8]">
-                Ví quỹ đang tắt
-              </div>
-            )}
+        <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 text-xs tabular-nums">
+          {weeklyFundConfig.enabled && (
+            <button
+              type="button"
+              onClick={() => {
+                haptic(10);
+                onOpenWallet();
+              }}
+              className="inline-flex items-center gap-1.5 text-left hover:opacity-80 active:opacity-70 transition"
+            >
+              <Wallet className="w-3.5 h-3.5 text-[#059669] shrink-0" />
+              <span className="text-[#6B7280] dark:text-[#94A3B8]">Ví:</span>
+              <span className="font-bold text-[#111827] dark:text-[#F8FAFC]">
+                {me.current_balance.toLocaleString('vi-VN')}đ
+              </span>
+              {myBonusTotal > 0 && (
+                <span className="text-[11px] font-semibold text-[#059669] dark:text-[#34D399]">
+                  (+{myBonusTotal.toLocaleString('vi-VN')}đ)
+                </span>
+              )}
+              <ChevronRight className="w-3.5 h-3.5 text-[#9CA3AF]" />
+            </button>
+          )}
 
-            {featureFlags.recurring_tasks && recurringSummary.total > 0 ? (
-              <div className="p-3.5 space-y-1.5">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280] dark:text-[#94A3B8]">
-                    Tiến độ
-                  </span>
-                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] tabular-nums">
-                    <CheckCircle2 className="w-3 h-3" />
-                    {progressPct}%
-                  </span>
-                </div>
-                <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums truncate">
-                  {recurringSummary.done}/{recurringSummary.total} chung
-                  {pendingPersonalCount > 0 ? ` • ${pendingPersonalCount} riêng` : ''}
-                </p>
-                <div className="h-1.5 w-full rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] overflow-hidden">
-                  <div
-                    className="h-full bg-[#059669] rounded-full transition-all duration-300"
-                    style={{ width: `${progressPct}%` }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="p-3.5 flex flex-col justify-center">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-[#6B7280] dark:text-[#94A3B8]">
-                  Việc riêng
-                </span>
-                <span className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] tabular-nums mt-0.5">
-                  {pendingPersonalCount > 0 ? `${pendingPersonalCount} chờ làm` : 'Gọn gàng'}
-                </span>
-              </div>
-            )}
-          </div>
+          {featureFlags.recurring_tasks && recurringSummary.total > 0 && (
+            <div className="inline-flex items-center gap-1 text-[#6B7280] dark:text-[#94A3B8]">
+              <CheckCircle2 className="w-3.5 h-3.5 text-[#059669] shrink-0" />
+              <span>Tiến độ:</span>
+              <span className="font-bold text-[#111827] dark:text-[#F8FAFC]">
+                {recurringSummary.done}/{recurringSummary.total}
+              </span>
+            </div>
+          )}
 
           {sharedPartyFund.show_banner && (
-            <div className="px-3.5 py-2 border-t border-[#F3F4F6] dark:border-[#334155] bg-[#FFFBEB]/60 dark:bg-[#451A03]/25 flex items-center justify-between text-xs tabular-nums">
-              <span className="inline-flex items-center gap-1.5 font-semibold text-[#B45309] dark:text-[#FCD34D]">
-                <PartyPopper className="w-3.5 h-3.5" />
-                Quỹ liên hoan chung
-              </span>
+            <div className="inline-flex items-center gap-1 text-[#B45309] dark:text-[#FCD34D]">
+              <PartyPopper className="w-3.5 h-3.5 shrink-0" />
+              <span>Quỹ chung:</span>
               <span className="font-bold text-[#111827] dark:text-[#F8FAFC]">
                 {sharedPartyFund.balance.toLocaleString('vi-VN')}đ
               </span>
@@ -405,19 +355,12 @@ export function ChoreBoard({
         </section>
       )}
 
-      {/* Section 1: My Assigned Chores (Collapsed to slim 1-line bar when 0) */}
-      {myAssignments.length === 0 ? (
-        <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-xl px-3.5 py-2.5 flex items-center justify-between text-xs text-[#6B7280] dark:text-[#94A3B8]">
-          <span className="font-medium">Việc riêng: Trống</span>
-          <span className="px-2 py-0.5 rounded-md bg-[#F3F4F6] dark:bg-[#0F172A] text-[11px] font-semibold tabular-nums">
-            0
-          </span>
-        </div>
-      ) : (
+      {/* Section 1: My Assigned Chores (Completely hidden when 0 pending/missed tasks) */}
+      {hasActivePersonal && visibleAssignments.length > 0 && (
         <section className="space-y-2.5">
           <div className="flex items-center justify-between px-0.5">
             <h2 className="text-xs font-bold uppercase tracking-wider text-[#111827] dark:text-[#F8FAFC]">
-              Việc được giao ({myAssignments.length})
+              Việc được giao ({visibleAssignments.length})
             </h2>
             {pendingPersonalCount > 0 && (
               <span className="text-[11px] font-semibold text-[#D97706] tabular-nums">
@@ -426,10 +369,9 @@ export function ChoreBoard({
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
-            {myAssignments.map((a) => {
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {visibleAssignments.map((a) => {
               const linkedChore = choreById.get(a.chore_id);
-              const isDone = a.cycle_status === 'completed';
               const isMissed = a.cycle_status === 'missed';
               const isPending = a.cycle_status === 'pending';
               const isSwappedToMe =
@@ -443,23 +385,19 @@ export function ChoreBoard({
               return (
                 <div
                   key={a.id}
-                  className={`bg-white dark:bg-[#1E293B] rounded-2xl p-3.5 space-y-2.5 border flex flex-col justify-between ${
+                  className={`bg-white dark:bg-[#1E293B] rounded-2xl p-3 space-y-2.5 border flex flex-col justify-between ${
                     isMissed
                       ? 'border-[#FCA5A5] dark:border-[#991B1B]'
-                      : isDone
-                        ? 'border-[#A7F3D0] dark:border-[#047857]'
-                        : 'border-[#FCD34D] dark:border-[#B45309]'
+                      : 'border-[#FCD34D] dark:border-[#B45309]'
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div
                         className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                          isDone
-                            ? 'bg-[#ECFDF5] dark:bg-[#064E3B] border-[#A7F3D0] text-[#059669] dark:text-[#34D399]'
-                            : isMissed
-                              ? 'bg-[#FEF2F2] dark:bg-[#450A0A] border-[#FECACA] text-[#DC2626]'
-                              : 'bg-[#FFFBEB] dark:bg-[#451A03] border-[#FDE68A] text-[#D97706]'
+                          isMissed
+                            ? 'bg-[#FEF2F2] dark:bg-[#450A0A] border-[#FECACA] text-[#DC2626]'
+                            : 'bg-[#FFFBEB] dark:bg-[#451A03] border-[#FDE68A] text-[#D97706]'
                         }`}
                       >
                         <ChoreIcon icon={a.chore_icon} className="w-5 h-5" />
@@ -469,12 +407,6 @@ export function ChoreBoard({
                           <h3 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
                             {a.chore_title}
                           </h3>
-                          {isDone && (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-[#059669] dark:text-[#34D399]">
-                              <CheckCircle2 className="w-3 h-3" />
-                              Xong
-                            </span>
-                          )}
                           {isMissed && (
                             <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-[#DC2626]">
                               <AlertCircle className="w-3 h-3" />
@@ -511,22 +443,15 @@ export function ChoreBoard({
                         setDetailTarget({ kind: 'assigned', assignment: a, chore: linkedChore });
                       }}
                       aria-label={`Tùy chọn ${a.chore_title}`}
-                      className="w-10 h-10 rounded-xl hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] flex items-center justify-center text-[#6B7280] dark:text-[#94A3B8] shrink-0"
+                      className="w-9 h-9 rounded-xl hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] flex items-center justify-center text-[#6B7280] dark:text-[#94A3B8] shrink-0"
                     >
                       <MoreHorizontal className="w-4 h-4" />
                     </button>
                   </div>
 
-                  {isDone ? (
-                    <div className="flex items-center justify-between rounded-xl bg-[#ECFDF5]/60 dark:bg-[#064E3B]/30 px-3 py-2 text-xs text-[#047857] dark:text-[#6EE7B7] tabular-nums">
-                      <span>Đã nộp ảnh xác thực</span>
-                      <span className="font-semibold">
-                        {a.completed_at_iso ? formatRelativeVi(a.completed_at_iso, tickMs) : 'Xong'}
-                      </span>
-                    </div>
-                  ) : isMissed ? (
+                  {isMissed ? (
                     <div className="rounded-xl bg-[#FEF2F2] dark:bg-[#450A0A] px-3 py-2 text-xs text-[#B91C1C] dark:text-[#FCA5A5] font-medium">
-                      Đã quá hạn &amp; trừ quỹ tuần.
+                      Quá hạn &amp; trừ quỹ tuần
                     </div>
                   ) : isPending && linkedChore ? (
                     <div className="space-y-1.5">
@@ -537,14 +462,14 @@ export function ChoreBoard({
                             onClick={() =>
                               onStartCapture({ chore: linkedChore, assignedChore: a, phase: 'before' })
                             }
-                            className="w-full h-11 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-semibold text-sm flex items-center justify-center gap-2"
+                            className="w-full h-10 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-semibold text-sm flex items-center justify-center gap-1.5"
                           >
                             <Play className="w-4 h-4" />
-                            Chụp Trước
+                            Chụp trước
                           </button>
                         ) : unlockRemainMs > 0 ? (
                           <div className="flex gap-2">
-                            <div className="flex-1 h-11 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold flex items-center justify-center gap-1.5 tabular-nums">
+                            <div className="flex-1 h-10 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold flex items-center justify-center gap-1.5 tabular-nums">
                               <Timer className="w-4 h-4" />
                               Chờ {formatCountdown(unlockRemainMs)}
                             </div>
@@ -552,7 +477,7 @@ export function ChoreBoard({
                               type="button"
                               onClick={() => cancelSession(session.id)}
                               aria-label="Huỷ phiên"
-                              className="w-11 h-11 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#DC2626]"
+                              className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#DC2626]"
                             >
                               <XCircle className="w-4 h-4" />
                             </button>
@@ -568,10 +493,10 @@ export function ChoreBoard({
                                 sessionId: session.id,
                               })
                             }
-                            className="w-full h-11 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-sm flex items-center justify-center gap-2"
+                            className="w-full h-10 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-sm flex items-center justify-center gap-1.5"
                           >
                             <Camera className="w-4 h-4" />
-                            Chụp hoàn thành
+                            Chụp xong
                           </button>
                         )
                       ) : (
@@ -580,17 +505,17 @@ export function ChoreBoard({
                           onClick={() =>
                             onStartCapture({ chore: linkedChore, assignedChore: a, phase: 'single' })
                           }
-                          className="w-full h-11 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] transition"
+                          className="w-full h-10 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-sm flex items-center justify-center gap-1.5 active:scale-[0.99] transition"
                         >
                           <Camera className="w-4 h-4" />
-                          Chụp hoàn thành
+                          Chụp xong
                         </button>
                       )}
 
                       {isOpenSwapByMe && a.active_swap && (
                         <div className="flex items-center justify-between rounded-xl bg-[#FFFBEB] dark:bg-[#451A03]/40 px-3 py-1.5 text-[11px]">
                           <span className="text-[#B45309] dark:text-[#FCD34D] font-medium">
-                            Đang chờ người nhận hộ...
+                            Đang chờ đổi ca
                           </span>
                           <button
                             type="button"
@@ -602,11 +527,7 @@ export function ChoreBoard({
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <div className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] px-1">
-                      Chưa đến lịch hôm nay
-                    </div>
-                  )}
+                  ) : null}
                 </div>
               );
             })}
@@ -652,11 +573,11 @@ export function ChoreBoard({
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-6 text-center">
             <Sparkles className="w-6 h-6 text-[#059669] mx-auto mb-1.5" />
             <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC]">
-              Đã hoàn thành hết mục này
+              Hoàn thành hết
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {filteredChores.map((chore) => {
               const latest = latestLogByChore.get(chore.id);
               const cooldownMs = Math.max(0, chore.cooldown_minutes) * 60_000;
@@ -678,12 +599,12 @@ export function ChoreBoard({
               return (
                 <div
                   key={chore.id}
-                  className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-3 flex flex-col justify-between"
+                  className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3 space-y-2.5 flex flex-col justify-between"
                 >
-                  <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div
-                        className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
                           doneThisPeriod
                             ? 'bg-[#ECFDF5] dark:bg-[#064E3B] border-[#A7F3D0] dark:border-[#047857] text-[#059669] dark:text-[#34D399]'
                             : 'bg-[#F8F9FA] dark:bg-[#0F172A] border-[#E5E7EB] dark:border-[#334155] text-[#111827] dark:text-[#F8FAFC]'
@@ -692,7 +613,7 @@ export function ChoreBoard({
                         <ChoreIcon icon={chore.icon} className="w-5 h-5" />
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="flex items-center gap-1.5">
                           <h3 className="text-[15px] font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
                             {chore.title}
                           </h3>
@@ -702,19 +623,19 @@ export function ChoreBoard({
                         </div>
                         <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] truncate tabular-nums">
                           {latest
-                            ? `Gần nhất: ${latest.member_name} • ${formatRelativeVi(latest.server_timestamp, tickMs)}`
-                            : `${freqText}${chore.cooldown_minutes > 0 ? ` • Chờ ${chore.cooldown_minutes}p` : ''}`}
+                            ? `${latest.member_name} • ${formatRelativeVi(latest.server_timestamp, tickMs)}`
+                            : `${freqText}${chore.cooldown_minutes > 0 ? ` • ${chore.cooldown_minutes}p` : ''}`}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
                       {latest && (
                         <button
                           type="button"
                           onClick={() => onInspectPhoto(latest)}
                           aria-label={`Xem ảnh ${chore.title}`}
-                          className="relative w-10 h-10 rounded-lg overflow-hidden border border-[#E5E7EB] dark:border-[#334155] shrink-0 active:scale-95 transition"
+                          className="relative w-9 h-9 rounded-lg overflow-hidden border border-[#E5E7EB] dark:border-[#334155] shrink-0 active:scale-95 transition"
                         >
                           <ProtectedImage
                             src={latest.thumb_url || latest.proof_url}
@@ -731,7 +652,7 @@ export function ChoreBoard({
                           setDetailTarget({ kind: 'chore', chore, latest });
                         }}
                         aria-label={`Chi tiết ${chore.title}`}
-                        className="w-10 h-10 rounded-xl hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] flex items-center justify-center text-[#6B7280] dark:text-[#94A3B8]"
+                        className="w-9 h-9 rounded-xl hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] flex items-center justify-center text-[#6B7280] dark:text-[#94A3B8]"
                       >
                         <MoreHorizontal className="w-4 h-4" />
                       </button>
@@ -739,7 +660,7 @@ export function ChoreBoard({
                   </div>
 
                   {onCooldown ? (
-                    <div className="w-full h-11 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] border border-[#FDE68A] dark:border-[#92400E] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold flex items-center justify-center gap-1.5 tabular-nums">
+                    <div className="w-full h-10 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] border border-[#FDE68A] dark:border-[#92400E] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold flex items-center justify-center gap-1.5 tabular-nums">
                       <Clock className="w-4 h-4" />
                       Chờ {formatCountdown(remainMs)}
                     </div>
@@ -748,22 +669,22 @@ export function ChoreBoard({
                       <button
                         type="button"
                         onClick={() => onStartCapture({ chore, assignedChore: null, phase: 'before' })}
-                        className="w-full h-11 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] transition"
+                        className="w-full h-10 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-semibold text-sm flex items-center justify-center gap-1.5 active:scale-[0.99] transition"
                       >
                         <Play className="w-4 h-4" />
-                        Chụp Trước (Before)
+                        Chụp trước
                       </button>
                     ) : unlockRemainMs > 0 ? (
                       <div className="flex gap-2">
-                        <div className="flex-1 h-11 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] border border-[#FDE68A] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold flex items-center justify-center gap-1.5 tabular-nums">
+                        <div className="flex-1 h-10 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] border border-[#FDE68A] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold flex items-center justify-center gap-1.5 tabular-nums">
                           <Timer className="w-4 h-4" />
-                          Mở khóa sau {formatCountdown(unlockRemainMs)}
+                          Chờ {formatCountdown(unlockRemainMs)}
                         </div>
                         <button
                           type="button"
                           onClick={() => cancelSession(session.id)}
                           aria-label="Huỷ phiên"
-                          className="w-11 h-11 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#DC2626]"
+                          className="w-10 h-10 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#DC2626]"
                         >
                           <XCircle className="w-4 h-4" />
                         </button>
@@ -779,20 +700,20 @@ export function ChoreBoard({
                             sessionId: session.id,
                           })
                         }
-                        className="w-full h-11 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] transition"
+                        className="w-full h-10 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-sm flex items-center justify-center gap-1.5 active:scale-[0.99] transition"
                       >
                         <Camera className="w-4 h-4" />
-                        Chụp hoàn thành
+                        Chụp xong
                       </button>
                     )
                   ) : (
                     <button
                       type="button"
                       onClick={() => onStartCapture({ chore, assignedChore: null, phase: 'single' })}
-                      className="w-full h-11 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.99] transition"
+                      className="w-full h-10 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-sm flex items-center justify-center gap-1.5 active:scale-[0.99] transition"
                     >
                       <Camera className="w-4 h-4" />
-                      Chụp hoàn thành
+                      Chụp xong
                     </button>
                   )}
                 </div>

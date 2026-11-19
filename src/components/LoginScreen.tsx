@@ -58,11 +58,8 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
             <CheckSquare className="w-5 h-5" strokeWidth={2} />
           </div>
           <div>
-            <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] leading-tight">
+            <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] leading-tight">
               trackingwork
-            </p>
-            <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8]">
-              Quản lý việc nhà & xác thực minh bạch
             </p>
           </div>
         </div>
@@ -79,12 +76,9 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
 
       <div className="my-auto py-8 w-full max-w-md mx-auto">
         <div className="mb-6 md:text-center">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-[#111827] dark:text-[#F8FAFC]">
+          <h1 className="text-2xl font-bold tracking-tight text-[#111827] dark:text-[#F8FAFC]">
             Đăng nhập
           </h1>
-          <p className="mt-1.5 text-sm text-[#6B7280] dark:text-[#94A3B8]">
-            Nhập tên tài khoản và mã PIN 6 số (hoặc mật khẩu quản trị).
-          </p>
         </div>
 
         <form
@@ -175,9 +169,7 @@ export function LoginScreen({ onSuccess, darkMode, onToggleDark }: LoginScreenPr
         </form>
       </div>
 
-      <p className="text-center text-xs text-[#6B7280] dark:text-[#94A3B8]">
-        Tối ưu cho Điện thoại, iPad & Laptop • Chụp ảnh trực tiếp chống gian lận
-      </p>
+      <div className="h-2" />
     </div>
   );
 }
