@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { ChoreLogItem } from '@/lib/types';
 import { formatIsoToVn } from '@/lib/time';
+import { MemberAvatar } from './MemberAvatar';
 import { ProtectedImage } from './ProtectedImage';
 import type { BonusTarget } from './AwardBonusModal';
 
@@ -186,20 +187,27 @@ export function PhotoViewerModal({
       >
         {/* Top Bar — Solid opaque + iOS/Android PWA Safe-Area Top Padding */}
         <div className="relative z-50 bg-[#0B1215] md:bg-[#0F172A] flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,20px)+12px)] md:pt-3 pb-3 border-b border-white/10 text-white shrink-0">
-          <div className="min-w-0 pr-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm md:text-base font-semibold truncate">{log.chore_title}</p>
-              {log.bonus_awarded > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[10px] font-bold tabular-nums">
-                  <Gift className="w-3 h-3" />
-                  Đã thưởng +{log.bonus_awarded.toLocaleString('vi-VN')}đ
-                </span>
-              )}
+          <div className="flex items-center gap-2.5 min-w-0 pr-3">
+            <MemberAvatar
+              name={log.member_name}
+              avatarUrl={log.member_avatar_url}
+              size="md"
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm md:text-base font-semibold truncate">{log.chore_title}</p>
+                {log.bonus_awarded > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[10px] font-bold tabular-nums">
+                    <Gift className="w-3 h-3" />
+                    +{log.bonus_awarded.toLocaleString('vi-VN')}đ
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-white/75 tabular-nums truncate">
+                {log.member_name} • {formatIsoToVn(log.server_timestamp)}
+                {log.points_awarded > 0 ? ` • +${log.points_awarded} điểm` : ''}
+              </p>
             </div>
-            <p className="text-xs text-white/75 tabular-nums truncate">
-              {log.member_name} • {formatIsoToVn(log.server_timestamp)}
-              {log.points_awarded > 0 ? ` • +${log.points_awarded} điểm` : ''}
-            </p>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {onSelectLog && allLogs.length > 1 && (

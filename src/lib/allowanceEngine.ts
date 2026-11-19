@@ -511,6 +511,7 @@ export function buildWeeklySettlementRows(params: {
       return {
         profile_id: m.id,
         display_name: m.display_name,
+        avatar_url: m.avatar_url || null,
         weekly_allowance: m.weekly_allowance,
         total_penalties: totalPenalties,
         total_bounty_paid: totalBountyPaid,

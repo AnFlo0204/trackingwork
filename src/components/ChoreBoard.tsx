@@ -13,6 +13,7 @@ import {
   Eye,
   Gift,
   HandHelping,
+  Lock,
   MoreHorizontal,
   PartyPopper,
   Play,
@@ -21,7 +22,6 @@ import {
   Timer,
   Wallet,
   X,
-  XCircle,
 } from 'lucide-react';
 import type {
   AssignedChoreItem,
@@ -35,10 +35,11 @@ import type {
   ShiftSwapItem,
   WeeklyFundConfig,
 } from '@/lib/types';
-import { formatRelativeVi, getVnPeriodBounds } from '@/lib/time';
+import { formatIsoToVn, getVnPeriodBounds } from '@/lib/time';
 import { haptic } from '@/lib/offlineQueue';
 import { signedFetch } from '@/lib/requestSigner';
 import { ChoreIcon } from './ChoreIcon';
+import { MemberAvatar } from './MemberAvatar';
 import { ProtectedImage } from './ProtectedImage';
 import type { CaptureTarget } from './CameraCaptureSheet';
 import type { BonusTarget } from './AwardBonusModal';
@@ -90,6 +91,17 @@ function describeAssignmentSchedule(a: AssignedChoreItem): string {
   return `${days} • ${a.due_time}`;
 }
 
+function compactTimeOnly(iso: string): string {
+  const full = formatIsoToVn(iso);
+  const parts = full.split(' ');
+  return parts.length >= 2 ? parts[1].slice(0, 5) : full;
+}
+
+function formatK(v: number): string {
+  if (v >= 1000 && v % 1000 === 0) return `${v / 1000}k`;
+  return `${v.toLocaleString('vi-VN')}đ`;
+}
+
 export function ChoreBoard({
   me,
   chores,
@@ -114,6 +126,8 @@ export function ChoreBoard({
   const [query, setQuery] = useState('');
   const [tickMs, setTickMs] = useState(() => Date.parse(serverNowIso) || Date.now());
   const [busySwapId, setBusySwapId] = useState<string | null>(null);
+  const [busyLockId, setBusyLockId] = useState<string | null>(null);
+  const [lockToast, setLockToast] = useState<string | null>(null);
   const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
 
   useEffect(() => {
@@ -244,22 +258,54 @@ export function ChoreBoard({
     }
   }
 
-  async function cancelSession(sessionId: string) {
+  async function startLockOnly(chore: Chore, assignedChore?: AssignedChoreItem | null) {
+    setBusyLockId(chore.id);
     haptic(15);
-    await signedFetch(`/api/chores/start?sessionId=${encodeURIComponent(sessionId)}`, {
-      method: 'DELETE',
-    });
-    await onRefresh();
+    try {
+      const res = await signedFetch('/api/chores/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          choreId: chore.id,
+          assignedChoreId: assignedChore?.id || null,
+          cycleKey: assignedChore?.current_cycle_key || null,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        setLockToast(d?.error || 'Công việc đang có người khác làm.');
+        setTimeout(() => setLockToast(null), 3500);
+      }
+      await onRefresh();
+    } finally {
+      setBusyLockId(null);
+    }
+  }
+
+  async function cancelSession(sessionId: string) {
+    setBusyLockId(sessionId);
+    haptic(15);
+    try {
+      await signedFetch(`/api/chores/start?sessionId=${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+      });
+      await onRefresh();
+    } finally {
+      setBusyLockId(null);
+    }
   }
 
   function findActiveSession(choreId: string, assignedChoreId: string | null) {
+    const valid = activeSessions.filter(
+      (s) => s.status === 'in_progress' && (!s.expires_at || Date.parse(s.expires_at) > tickMs),
+    );
     return (
-      activeSessions.find(
+      valid.find(
         (s) =>
           s.chore_id === choreId &&
           (assignedChoreId ? s.assigned_chore_id === assignedChoreId : !s.assigned_chore_id),
       ) ||
-      activeSessions.find((s) => s.chore_id === choreId) ||
+      valid.find((s) => s.chore_id === choreId) ||
       null
     );
   }
@@ -378,18 +424,19 @@ export function ChoreBoard({
         </section>
       )}
 
+      {lockToast && (
+        <div className="rounded-xl bg-[#FFFBEB] dark:bg-[#451A03] border border-[#FDE68A] dark:border-[#92400E] px-3.5 py-2 text-xs font-semibold text-[#B45309] dark:text-[#FCD34D]">
+          {lockToast}
+        </div>
+      )}
+
       {/* Section 1: My Assigned Chores (Completely hidden when 0 pending/missed tasks) */}
       {hasActivePersonal && visibleAssignments.length > 0 && (
         <section className="space-y-2">
           <div className="flex items-center justify-between px-0.5">
             <h2 className="text-xs font-bold uppercase tracking-wider text-[#111827] dark:text-[#F8FAFC]">
-              Việc được giao ({visibleAssignments.length})
+              Việc riêng ({visibleAssignments.length})
             </h2>
-            {pendingPersonalCount > 0 && (
-              <span className="text-[11px] font-semibold text-[#D97706] tabular-nums">
-                {pendingPersonalCount} chờ làm
-              </span>
-            )}
           </div>
 
           <div className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl divide-y divide-[#F3F4F6] dark:divide-[#334155] overflow-hidden">
@@ -404,6 +451,9 @@ export function ChoreBoard({
 
               const session = linkedChore ? findActiveSession(linkedChore.id, a.id) : null;
               const unlockRemainMs = session ? Math.max(0, Date.parse(session.unlock_at) - tickMs) : 0;
+              const lockedByOther = Boolean(session && session.profile_id !== me.id);
+              const lockedByMe = Boolean(session && session.profile_id === me.id);
+              const canReleaseLock = Boolean(session && (lockedByMe || me.role === 'admin'));
 
               return (
                 <div
@@ -442,7 +492,7 @@ export function ChoreBoard({
                             onClick={() => respondSwap(a.active_swap!.id, 'cancel')}
                             className="px-1.5 py-0.5 rounded bg-[#FFFBEB] dark:bg-[#451A03] text-[#B45309] text-[10px] font-semibold"
                           >
-                            Huỷ đổi ca
+                            Hủy đổi ca
                           </button>
                         )}
                       </div>
@@ -451,12 +501,7 @@ export function ChoreBoard({
                         {describeAssignmentSchedule(a)}
                         {a.bonus_amount > 0 && (
                           <span className="text-[#059669] font-semibold">
-                            • +{a.bonus_amount.toLocaleString('vi-VN')}đ
-                          </span>
-                        )}
-                        {a.penalty_amount > 0 && (
-                          <span className="text-[#DC2626] font-semibold">
-                            • -{a.penalty_amount.toLocaleString('vi-VN')}đ
+                            • +{formatK(a.bonus_amount)}
                           </span>
                         )}
                       </p>
@@ -469,7 +514,29 @@ export function ChoreBoard({
                         Trừ quỹ
                       </span>
                     ) : isPending && linkedChore ? (
-                      linkedChore.require_before_after ? (
+                      lockedByOther && session ? (
+                        <div className="flex items-center gap-1">
+                          <span className="h-9 px-2.5 rounded-xl bg-[#F3F4F6] dark:bg-[#0F172A] text-[#6B7280] dark:text-[#94A3B8] text-xs font-semibold inline-flex items-center gap-1.5">
+                            <Lock className="w-3 h-3" />
+                            <MemberAvatar
+                              name={session.member_name || ''}
+                              avatarUrl={session.member_avatar_url}
+                              size="xs"
+                            />
+                            <span className="truncate max-w-[100px]">{session.member_name} đang làm</span>
+                          </span>
+                          {canReleaseLock && (
+                            <button
+                              type="button"
+                              disabled={busyLockId === session.id}
+                              onClick={() => cancelSession(session.id)}
+                              className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                            >
+                              Hủy
+                            </button>
+                          )}
+                        </div>
+                      ) : linkedChore.require_before_after ? (
                         !session ? (
                           <button
                             type="button"
@@ -479,7 +546,7 @@ export function ChoreBoard({
                             className="h-9 px-3.5 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white text-xs font-semibold inline-flex items-center gap-1.5"
                           >
                             <Play className="w-3.5 h-3.5" />
-                            Chụp trước
+                            Bắt đầu
                           </button>
                         ) : unlockRemainMs > 0 ? (
                           <div className="flex items-center gap-1">
@@ -487,23 +554,55 @@ export function ChoreBoard({
                               <Timer className="w-3.5 h-3.5" />
                               {formatCountdown(unlockRemainMs)}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => cancelSession(session.id)}
-                              aria-label="Huỷ phiên"
-                              className="w-9 h-9 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#DC2626]"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
+                            {canReleaseLock && (
+                              <button
+                                type="button"
+                                disabled={busyLockId === session.id}
+                                onClick={() => cancelSession(session.id)}
+                                className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                              >
+                                Hủy
+                              </button>
+                            )}
                           </div>
                         ) : (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onStartCapture({
+                                  chore: linkedChore,
+                                  assignedChore: a,
+                                  phase: 'after',
+                                  sessionId: session.id,
+                                })
+                              }
+                              className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              Chụp xong
+                            </button>
+                            {canReleaseLock && (
+                              <button
+                                type="button"
+                                disabled={busyLockId === session.id}
+                                onClick={() => cancelSession(session.id)}
+                                className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                              >
+                                Hủy
+                              </button>
+                            )}
+                          </div>
+                        )
+                      ) : lockedByMe && session ? (
+                        <div className="flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() =>
                               onStartCapture({
                                 chore: linkedChore,
                                 assignedChore: a,
-                                phase: 'after',
+                                phase: 'single',
                                 sessionId: session.id,
                               })
                             }
@@ -512,18 +611,37 @@ export function ChoreBoard({
                             <Camera className="w-3.5 h-3.5" />
                             Chụp xong
                           </button>
-                        )
+                          <button
+                            type="button"
+                            disabled={busyLockId === session.id}
+                            onClick={() => cancelSession(session.id)}
+                            className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                          >
+                            Hủy
+                          </button>
+                        </div>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onStartCapture({ chore: linkedChore, assignedChore: a, phase: 'single' })
-                          }
-                          className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold inline-flex items-center gap-1.5"
-                        >
-                          <Camera className="w-3.5 h-3.5" />
-                          Chụp xong
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={busyLockId === linkedChore.id}
+                            onClick={() => void startLockOnly(linkedChore, a)}
+                            className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-[#374151] dark:text-[#CBD5E1] text-xs font-semibold inline-flex items-center gap-1"
+                          >
+                            <Play className="w-3 h-3" />
+                            Bắt đầu
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onStartCapture({ chore: linkedChore, assignedChore: a, phase: 'single' })
+                            }
+                            className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            Chụp xong
+                          </button>
+                        </div>
                       )
                     ) : null}
 
@@ -614,19 +732,16 @@ export function ChoreBoard({
 
               const session = findActiveSession(chore.id, null);
               const unlockRemainMs = session ? Math.max(0, Date.parse(session.unlock_at) - tickMs) : 0;
-
-              const freqText =
-                chore.frequency === 'daily'
-                  ? 'Hàng ngày'
-                  : chore.frequency === 'weekly'
-                    ? 'Hàng tuần'
-                    : 'Tự do';
+              const lockedByOther = Boolean(session && session.profile_id !== me.id);
+              const lockedByMe = Boolean(session && session.profile_id === me.id);
+              const canReleaseLock = Boolean(session && (lockedByMe || me.role === 'admin'));
 
               return (
                 <div
                   key={chore.id}
-                  className="px-3.5 sm:px-4 py-3 flex items-center justify-between gap-2.5 hover:bg-[#F8F9FA]/70 dark:hover:bg-[#0F172A]/40 transition"
+                  className="px-3.5 sm:px-4 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 hover:bg-[#F8F9FA]/70 dark:hover:bg-[#0F172A]/40 transition"
                 >
+                  {/* 1. Icon + Name + Points/Reward chip + 2. Compact Status */}
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div
                       className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
@@ -640,23 +755,53 @@ export function ChoreBoard({
                       <ChoreIcon icon={chore.icon} className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <h3 className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate">
                           {chore.title}
                         </h3>
-                        {doneThisPeriod && (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[#059669] dark:text-[#34D399] shrink-0" />
+                        {featureFlags.gamification && chore.points > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] text-[10px] font-bold tabular-nums">
+                            +{chore.points} điểm
+                          </span>
+                        )}
+                        {chore.bonus_amount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#FFFBEB] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-[10px] font-bold tabular-nums">
+                            +{formatK(chore.bonus_amount)}
+                          </span>
                         )}
                       </div>
-                      <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] truncate tabular-nums">
-                        {latest
-                          ? `${latest.member_name} • ${formatRelativeVi(latest.server_timestamp, tickMs)}`
-                          : freqText}
-                      </p>
+
+                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums min-w-0">
+                        {session ? (
+                          <span className="inline-flex items-center gap-1 text-[#B45309] dark:text-[#FCD34D] font-medium truncate">
+                            <Lock className="w-3 h-3 shrink-0" />
+                            <MemberAvatar
+                              name={session.member_name || ''}
+                              avatarUrl={session.member_avatar_url}
+                              size="xs"
+                            />
+                            <span className="truncate">{session.member_name} đang làm</span>
+                          </span>
+                        ) : latest ? (
+                          <span className="inline-flex items-center gap-1.5 truncate">
+                            <MemberAvatar
+                              name={latest.member_name}
+                              avatarUrl={latest.member_avatar_url}
+                              size="xs"
+                            />
+                            <span className="truncate">
+                              {latest.member_name} • {compactTimeOnly(latest.server_timestamp)}
+                            </span>
+                          </span>
+                        ) : (
+                          <span>Chưa làm</span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  {/* 3. Primary Action + Release + More Details */}
+                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                     {latest && (
                       <button
                         type="button"
@@ -672,7 +817,24 @@ export function ChoreBoard({
                       </button>
                     )}
 
-                    {onCooldown ? (
+                    {lockedByOther && session ? (
+                      <div className="flex items-center gap-1">
+                        <span className="h-9 px-3 rounded-xl bg-[#F3F4F6] dark:bg-[#0F172A] text-[#6B7280] dark:text-[#94A3B8] text-xs font-semibold inline-flex items-center gap-1">
+                          <Lock className="w-3 h-3" />
+                          Đang làm
+                        </span>
+                        {canReleaseLock && (
+                          <button
+                            type="button"
+                            disabled={busyLockId === session.id}
+                            onClick={() => cancelSession(session.id)}
+                            className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                          >
+                            Hủy
+                          </button>
+                        )}
+                      </div>
+                    ) : onCooldown ? (
                       <span className="h-9 px-3 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-semibold inline-flex items-center gap-1 tabular-nums">
                         <Clock className="w-3.5 h-3.5" />
                         {formatCountdown(remainMs)}
@@ -685,7 +847,7 @@ export function ChoreBoard({
                           className="h-9 px-3.5 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-semibold text-xs inline-flex items-center gap-1.5 active:scale-[0.98] transition"
                         >
                           <Play className="w-3.5 h-3.5" />
-                          Chụp trước
+                          Bắt đầu
                         </button>
                       ) : unlockRemainMs > 0 ? (
                         <div className="flex items-center gap-1">
@@ -693,23 +855,55 @@ export function ChoreBoard({
                             <Timer className="w-3.5 h-3.5" />
                             {formatCountdown(unlockRemainMs)}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => cancelSession(session.id)}
-                            aria-label="Huỷ phiên"
-                            className="w-9 h-9 rounded-xl border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center text-[#DC2626]"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
+                          {canReleaseLock && (
+                            <button
+                              type="button"
+                              disabled={busyLockId === session.id}
+                              onClick={() => cancelSession(session.id)}
+                              className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                            >
+                              Hủy
+                            </button>
+                          )}
                         </div>
                       ) : (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onStartCapture({
+                                chore,
+                                assignedChore: null,
+                                phase: 'after',
+                                sessionId: session.id,
+                              })
+                            }
+                            className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-xs inline-flex items-center gap-1.5 active:scale-[0.98] transition"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            Chụp xong
+                          </button>
+                          {canReleaseLock && (
+                            <button
+                              type="button"
+                              disabled={busyLockId === session.id}
+                              onClick={() => cancelSession(session.id)}
+                              className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                            >
+                              Hủy
+                            </button>
+                          )}
+                        </div>
+                      )
+                    ) : lockedByMe && session ? (
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() =>
                             onStartCapture({
                               chore,
                               assignedChore: null,
-                              phase: 'after',
+                              phase: 'single',
                               sessionId: session.id,
                             })
                           }
@@ -718,16 +912,35 @@ export function ChoreBoard({
                           <Camera className="w-3.5 h-3.5" />
                           Chụp xong
                         </button>
-                      )
+                        <button
+                          type="button"
+                          disabled={busyLockId === session.id}
+                          onClick={() => cancelSession(session.id)}
+                          className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                        >
+                          Hủy
+                        </button>
+                      </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => onStartCapture({ chore, assignedChore: null, phase: 'single' })}
-                        className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-xs inline-flex items-center gap-1.5 active:scale-[0.98] transition"
-                      >
-                        <Camera className="w-3.5 h-3.5" />
-                        Chụp xong
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={busyLockId === chore.id}
+                          onClick={() => void startLockOnly(chore, null)}
+                          className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-[#374151] dark:text-[#CBD5E1] font-semibold text-xs inline-flex items-center gap-1"
+                        >
+                          <Play className="w-3 h-3" />
+                          Bắt đầu
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onStartCapture({ chore, assignedChore: null, phase: 'single' })}
+                          className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-xs inline-flex items-center gap-1.5 active:scale-[0.98] transition"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          Chụp xong
+                        </button>
+                      </div>
                     )}
 
                     <button
@@ -849,7 +1062,7 @@ export function ChoreBoard({
                   className="w-full h-11 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-sm font-semibold flex items-center justify-center gap-2"
                 >
                   <Eye className="w-4 h-4 text-[#059669]" />
-                  Xem ảnh hoàn thành gần nhất
+                  Xem ảnh
                 </button>
               )}
 
@@ -873,7 +1086,7 @@ export function ChoreBoard({
                     className="w-full h-11 rounded-xl bg-gradient-to-r from-[#059669] to-[#D97706] text-white text-sm font-bold flex items-center justify-center gap-2"
                   >
                     <Gift className="w-4 h-4" />
-                    Tặng thưởng lượt làm gần nhất ({detailTarget.latest.member_name})
+                    Thưởng ({detailTarget.latest.member_name})
                   </button>
                 )}
 
@@ -897,7 +1110,7 @@ export function ChoreBoard({
                     className="w-full h-11 rounded-xl bg-[#FFFBEB] dark:bg-[#451A03] border border-[#FDE68A] dark:border-[#92400E] text-[#B45309] dark:text-[#FCD34D] text-sm font-bold flex items-center justify-center gap-2"
                   >
                     <ArrowRightLeft className="w-4 h-4" />
-                    Nhờ làm hộ (Chuyển ca)
+                    Đổi ca
                   </button>
                 )}
             </div>

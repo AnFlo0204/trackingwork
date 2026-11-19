@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trackingwork-shell-v3';
+const CACHE_NAME = 'trackingwork-shell-v4';
 const SHELL_ASSETS = ['/manifest.json', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {

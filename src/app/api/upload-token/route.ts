@@ -38,7 +38,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Công việc không tồn tại.' }, { status: 404 });
     }
 
-    const serverNowMs = Date.parse(serverTime.isoUtc) || Date.now();
+    const serverNowIso = serverTime.isoUtc;
+    const { data: activeLock } = await supabase
+      .from('chore_sessions')
+      .select('id, profile_id, expires_at')
+      .eq('chore_id', choreId)
+      .eq('status', 'in_progress')
+      .gt('expires_at', serverNowIso)
+      .neq('profile_id', me.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (activeLock) {
+      const { data: locker } = await supabase
+        .from('profiles')
+        .select('display_name, username')
+        .eq('id', activeLock.profile_id)
+        .maybeSingle();
+      const lockerName = locker?.display_name || locker?.username || 'Thành viên';
+      return NextResponse.json(
+        { error: `🔒 ${lockerName} đang làm việc này.` },
+        { status: 409 },
+      );
+    }
+
+    const serverNowMs = Date.parse(serverNowIso) || Date.now();
     const expiresAt = new Date(serverNowMs + 2 * 60_000).toISOString(); // 2-minute TTL
 
     const { data: tok, error } = await supabase

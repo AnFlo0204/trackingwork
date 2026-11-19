@@ -68,7 +68,7 @@ export async function POST(req: Request) {
         current_balance: weeklyAllowance,
       })
       .select(
-        'id, username, display_name, role, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
+        'id, username, display_name, role, avatar_url, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
       )
       .single();
 

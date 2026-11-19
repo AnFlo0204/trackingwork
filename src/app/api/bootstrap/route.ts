@@ -74,8 +74,8 @@ export async function GET() {
       supabase
         .from('chore_sessions')
         .select('*')
-        .eq('profile_id', me.id)
         .eq('status', 'in_progress')
+        .gt('expires_at', serverTime.isoUtc)
         .order('created_at', { ascending: false }),
       // Paginated 20 most recent logs for initial feed
       supabase
@@ -86,7 +86,7 @@ export async function GET() {
       // Lightweight recent logs (last 8 days) for ChoreBoard "Last Completed By" & Analytics
       supabase
         .from('chore_logs')
-        .select('id, chore_id, profile_id, assigned_chore_id, cycle_key, proof_url, thumb_url, before_proof_url, points_awarded, chore_title_snapshot, quality_status, bonus_awarded, bonus_by, bonus_note, server_timestamp, created_at')
+        .select('id, chore_id, profile_id, assigned_chore_id, cycle_key, proof_url, thumb_url, before_proof_url, points_awarded, points_earned, chore_title_snapshot, quality_status, bonus_awarded, bonus_by, bonus_note, server_timestamp, created_at')
         .gte('created_at', sevenDaysAgoIso)
         .order('created_at', { ascending: false })
         .limit(100),
@@ -99,7 +99,7 @@ export async function GET() {
       supabase
         .from('profiles')
         .select(
-          'id, username, display_name, role, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
+          'id, username, display_name, role, avatar_url, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
         )
         .order('created_at', { ascending: true }),
       supabase.from('app_settings').select('key, value'),
@@ -167,6 +167,7 @@ export async function GET() {
         username: p.username,
         display_name: p.display_name || p.username,
         role,
+        avatar_url: p.avatar_url || null,
         is_active: Boolean(p.is_active),
         can_assign_tasks: role === 'admin' ? true : Boolean(p.can_assign_tasks),
         weekly_allowance: Number(p.weekly_allowance || 0),
@@ -233,6 +234,7 @@ export async function GET() {
         before_storage_path: (l.before_storage_path as string) || null,
         started_at: (l.started_at as string) || null,
         points_awarded: Number(l.points_awarded || 0),
+        points_earned: Number(l.points_earned ?? l.points_awarded ?? 0),
         chore_title_snapshot: String(l.chore_title_snapshot || chore?.title || 'Việc nhà'),
         quality_status: (l.quality_status as ChoreLogItem['quality_status']) || 'none',
         ok_count: rStats.ok,
@@ -245,6 +247,7 @@ export async function GET() {
         created_at: String(l.created_at),
         member_name: member?.display_name || member?.username || 'Thành viên',
         member_username: member?.username || '',
+        member_avatar_url: member?.avatar_url || null,
         chore_title: chore?.title || String(l.chore_title_snapshot || 'Việc nhà'),
         chore_icon: chore?.icon || 'sparkles',
       };
@@ -252,6 +255,15 @@ export async function GET() {
 
     const logs = pagedLogs.map(mapLog);
     const recentLogs = (recentLogsRes.data || []).map(mapLog);
+
+    const activeSessions = (sessionsRes.data || []).map((s) => {
+      const owner = profileMap.get(s.profile_id);
+      return {
+        ...s,
+        member_name: owner?.display_name || owner?.username || 'Thành viên',
+        member_avatar_url: owner?.avatar_url || null,
+      };
+    });
 
     const rawAudit = auditPageRes.data || [];
     const auditHasMore = rawAudit.length > PAGE_SIZE;
@@ -337,7 +349,7 @@ export async function GET() {
     const res = NextResponse.json({
       me: freshMe,
       chores: choresRes.data || [],
-      activeSessions: sessionsRes.data || [],
+      activeSessions,
       logs,
       logsNextCursor,
       auditLogs,

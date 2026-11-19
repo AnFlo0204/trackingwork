@@ -58,6 +58,16 @@ function formatStructuredTag(item: AuditLogItem): { tag: string; tone: string } 
         tag: '[Quỹ tuần]',
         tone: 'text-[#059669] dark:text-[#34D399] bg-[#ECFDF5] dark:bg-[#064E3B]',
       };
+    case 'UPDATE_CHORE_POINTS':
+      return {
+        tag: '[Sửa điểm]',
+        tone: 'text-[#059669] dark:text-[#34D399] bg-[#ECFDF5] dark:bg-[#064E3B]',
+      };
+    case 'UPDATE_AVATAR':
+      return {
+        tag: '[Avatar]',
+        tone: 'text-[#7C3AED] dark:text-[#C4B5FD] bg-[#F5F3FF] dark:bg-[#4C1D95]/40',
+      };
     case 'DELETE_CHORE':
     case 'EDIT_CHORE':
       return {
@@ -129,7 +139,10 @@ export function AuditLogView({ initialItems, initialNextCursor }: AuditLogViewPr
       ) {
         return false;
       }
-      if (group === 'CHORE' && !['DELETE_CHORE', 'EDIT_CHORE'].includes(item.action_type)) {
+      if (
+        group === 'CHORE' &&
+        !['DELETE_CHORE', 'EDIT_CHORE', 'UPDATE_CHORE_POINTS'].includes(item.action_type)
+      ) {
         return false;
       }
       if (

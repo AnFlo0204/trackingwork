@@ -24,7 +24,7 @@ import type {
 } from '@/lib/types';
 import { formatIsoToVn, getVnPeriodBounds } from '@/lib/time';
 import { signedFetch } from '@/lib/requestSigner';
-import { getInitials } from './ChoreIcon';
+import { MemberAvatar } from './MemberAvatar';
 
 interface AnalyticsViewProps {
   chores: Chore[];
@@ -94,25 +94,43 @@ export function AnalyticsView({
     const activeProfiles = members.filter(
       (m) => m.role === 'member' || logs.some((l) => l.profile_id === m.id),
     );
-    const map = new Map<string, { profile: ProfilePublic; count: number; points: number }>();
+    const chorePointsMap = new Map(chores.map((c) => [c.id, Number(c.points || 0)]));
+    const settlementMap = new Map(weeklySettlement.map((s) => [s.profile_id, s]));
+    const map = new Map<
+      string,
+      { profile: ProfilePublic; count: number; points: number; bonusVnd: number }
+    >();
 
     for (const p of activeProfiles) {
-      map.set(p.id, { profile: p, count: 0, points: 0 });
+      const sRow = settlementMap.get(p.id);
+      map.set(p.id, {
+        profile: p,
+        count: 0,
+        points: 0,
+        bonusVnd: sRow ? Number(sRow.total_bounty_earned || 0) : 0,
+      });
     }
 
     for (const log of logs) {
       const existing = map.get(log.profile_id);
       if (existing) {
+        const earned =
+          Number(log.points_earned ?? 0) > 0
+            ? Number(log.points_earned)
+            : Number(log.points_awarded || 0) > 0
+              ? Number(log.points_awarded)
+              : chorePointsMap.get(log.chore_id) || 0;
         existing.count += 1;
-        existing.points += log.points_awarded || 0;
+        existing.points += earned;
+        existing.bonusVnd += Number(log.bonus_awarded || 0);
       }
     }
 
     return Array.from(map.values()).sort((a, b) => {
-      if (featureFlags.gamification && b.points !== a.points) return b.points - a.points;
+      if (b.points !== a.points) return b.points - a.points;
       return b.count - a.count;
     });
-  }, [members, logs, featureFlags.gamification]);
+  }, [members, logs, chores, weeklySettlement]);
 
   const choreStats = useMemo(() => {
     const map = new Map<string, { title: string; count: number }>();
@@ -254,20 +272,17 @@ export function AnalyticsView({
                       className="w-full py-3 flex items-center justify-between gap-2 text-left hover:bg-[#F8F9FA]/60 dark:hover:bg-[#0F172A]/40 -mx-1 px-1 rounded-lg transition"
                     >
                       <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <div className="w-8 h-8 rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] text-[11px] font-bold flex items-center justify-center shrink-0">
-                          {getInitials(row.display_name)}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate leading-tight">
-                            {row.display_name}
-                          </p>
-                          <p className="text-[11px] text-[#9CA3AF] dark:text-[#64748B] tabular-nums">
-                            Gốc {formatCompactK(row.weekly_allowance)}
-                          </p>
-                        </div>
+                        <MemberAvatar
+                          name={row.display_name}
+                          avatarUrl={row.avatar_url}
+                          size="md"
+                        />
+                        <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate">
+                          {row.display_name}
+                        </p>
                       </div>
 
-                      {/* Middle Smart Delta Pills (blank if all 0) */}
+                      {/* Middle Smart Delta Pills (hidden if 0đ) */}
                       <div className="flex items-center gap-1 shrink-0 tabular-nums">
                         {plusDelta > 0 && (
                           <span className="px-1.5 py-0.5 rounded-md bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] text-[11px] font-bold">
@@ -296,15 +311,9 @@ export function AnalyticsView({
 
                     {isExpanded && (
                       <div className="pb-2.5 pl-10 pr-1 text-[11px] text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
-                        Gốc {row.weekly_allowance.toLocaleString('vi-VN')}đ • Thưởng +
-                        {(row.total_bonuses || 0).toLocaleString('vi-VN')}đ • Phạt{' '}
-                        {(row.total_penalties || 0).toLocaleString('vi-VN')}đ
-                        {row.total_bounty_earned > 0
-                          ? ` • Làm hộ +${row.total_bounty_earned.toLocaleString('vi-VN')}đ`
-                          : ''}
-                        {row.total_bounty_paid > 0
-                          ? ` • Chi hộ -${row.total_bounty_paid.toLocaleString('vi-VN')}đ`
-                          : ''}
+                        {row.weekly_allowance.toLocaleString('vi-VN')}đ
+                        {plusDelta > 0 ? ` • +${formatCompactK(plusDelta)}` : ''}
+                        {minusDelta > 0 ? ` • -${formatCompactK(minusDelta)}` : ''}
                       </div>
                     )}
                   </div>
@@ -355,22 +364,35 @@ export function AnalyticsView({
                       >
                         {idx + 1}
                       </span>
-                      <div className="w-8 h-8 rounded-full bg-[#F3F4F6] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] text-[11px] font-bold flex items-center justify-center shrink-0">
-                        {getInitials(entry.profile.display_name)}
-                      </div>
+                      <MemberAvatar
+                        name={entry.profile.display_name}
+                        avatarUrl={entry.profile.avatar_url}
+                        size="md"
+                      />
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate">
                           {entry.profile.display_name}
                           {isMe && <span className="text-xs text-[#059669] ml-1">(Bạn)</span>}
                         </p>
                         <p className="text-[11px] text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
-                          {entry.count} lượt
+                          {entry.count} lần
                         </p>
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-[#059669] dark:text-[#34D399] tabular-nums shrink-0">
-                      {entry.points} đ
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
+                      {entry.bonusVnd > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-[#FFFBEB] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-[11px] font-bold">
+                          +{formatCompactK(entry.bonusVnd)}
+                        </span>
+                      )}
+                      <span className="text-sm font-bold text-[#059669] dark:text-[#34D399]">
+                        {entry.points > 0
+                          ? `${entry.points} điểm`
+                          : entry.bonusVnd > 0
+                            ? `+${entry.bonusVnd.toLocaleString('vi-VN')}đ`
+                            : `${entry.count} lần`}
+                      </span>
+                    </div>
                   </div>
                 );
               })}

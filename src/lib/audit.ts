@@ -6,6 +6,8 @@ export type AuditActionType =
   | 'REWORK_HALF_PENALTY'
   | 'DELETE_CHORE'
   | 'EDIT_CHORE'
+  | 'UPDATE_CHORE_POINTS'
+  | 'UPDATE_AVATAR'
   | 'ADJUST_FUND'
   | 'CHANGE_SETTINGS'
   | 'CHANGE_ROLE'

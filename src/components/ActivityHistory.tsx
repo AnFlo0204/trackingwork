@@ -15,6 +15,7 @@ import type { AuditLogItem, Chore, ChoreLogItem, FeatureFlags, ProfilePublic } f
 import { formatIsoToVn } from '@/lib/time';
 import { haptic } from '@/lib/offlineQueue';
 import { AuditLogView } from './AuditLogView';
+import { MemberAvatar } from './MemberAvatar';
 import { ProtectedImage } from './ProtectedImage';
 import type { BonusTarget } from './AwardBonusModal';
 
@@ -206,13 +207,13 @@ export function ActivityHistory({
                       : 'border-[#E5E7EB] dark:border-[#334155]'
                   }`}
                 >
-                  {/* Compact Feed Row: 48x48 Thumbnail + Chore + Member • Time + Pills */}
+                  {/* Compact Feed Row: 44px Thumbnail + Chore + [Avatar] Member • Time + Pills */}
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
                       onClick={() => onInspectPhoto(log)}
                       aria-label={`Xem ${log.chore_title}`}
-                      className="relative w-12 h-12 rounded-xl overflow-hidden border border-[#E5E7EB] dark:border-[#334155] shrink-0 active:scale-95 transition"
+                      className="relative w-11 h-11 rounded-xl overflow-hidden border border-[#E5E7EB] dark:border-[#334155] shrink-0 active:scale-95 transition"
                     >
                       <ProtectedImage
                         src={thumbSrc}
@@ -232,8 +233,13 @@ export function ActivityHistory({
                           {log.chore_title}
                         </p>
                         <div className="flex items-center gap-1 shrink-0 tabular-nums">
-                          {log.bonus_awarded > 0 && (
+                          {(log.points_earned || log.points_awarded) > 0 && (
                             <span className="px-1.5 py-0.5 rounded-md bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] text-[10px] font-bold">
+                              +{log.points_earned || log.points_awarded} điểm
+                            </span>
+                          )}
+                          {log.bonus_awarded > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-[#FFFBEB] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-[10px] font-bold">
                               +{formatK(log.bonus_awarded)}
                             </span>
                           )}
@@ -248,9 +254,16 @@ export function ActivityHistory({
                           ) : null}
                         </div>
                       </div>
-                      <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] truncate tabular-nums mt-0.5">
-                        {log.member_name} • {compactTime(log.server_timestamp)}
-                      </p>
+                      <div className="flex items-center gap-1.5 text-xs text-[#6B7280] dark:text-[#94A3B8] truncate tabular-nums mt-0.5">
+                        <MemberAvatar
+                          name={log.member_name}
+                          avatarUrl={log.member_avatar_url}
+                          size="xs"
+                        />
+                        <span className="truncate">
+                          {log.member_name} • {compactTime(log.server_timestamp)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 

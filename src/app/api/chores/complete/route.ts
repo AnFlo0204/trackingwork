@@ -104,13 +104,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Công việc không tồn tại hoặc đã bị ẩn.' }, { status: 404 });
     }
 
+    const serverNowIso = new Date(serverNowMs).toISOString();
+    // Auto-expire any stale locks older than 60 minutes, then reject if another user holds an active lock
+    await supabase
+      .from('chore_sessions')
+      .update({ status: 'cancelled' })
+      .eq('chore_id', chore.id)
+      .eq('status', 'in_progress')
+      .lte('expires_at', serverNowIso);
+
+    const { data: foreignLock } = await supabase
+      .from('chore_sessions')
+      .select('id, profile_id')
+      .eq('chore_id', chore.id)
+      .eq('status', 'in_progress')
+      .gt('expires_at', serverNowIso)
+      .neq('profile_id', me.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (foreignLock) {
+      const { data: locker } = await supabase
+        .from('profiles')
+        .select('display_name, username')
+        .eq('id', foreignLock.profile_id)
+        .maybeSingle();
+      const lockerName = locker?.display_name || locker?.username || 'Thành viên';
+      return NextResponse.json(
+        { error: `🔒 ${lockerName} đang làm việc này.` },
+        { status: 409 },
+      );
+    }
+
     const todayCycleKey = getVnDateParts(serverNowMs).dateStr;
     let resolvedCycleKey: string | null = requestedCycleKey || todayCycleKey;
 
     let beforeProofUrl: string | null = null;
     let beforeStoragePath: string | null = null;
     let startedAt: string | null = null;
-    let activeSessionId: string | null = null;
 
     if (chore.require_before_after) {
       const { data: sessionRow } = sessionId
@@ -131,7 +162,7 @@ export async function POST(req: Request) {
             .limit(1)
             .maybeSingle();
 
-      if (!sessionRow) {
+      if (!sessionRow || !sessionRow.before_proof_url) {
         return NextResponse.json(
           { error: 'Việc này yêu cầu chụp ảnh Trước khi làm trước khi hoàn thành.' },
           { status: 400 },
@@ -154,7 +185,6 @@ export async function POST(req: Request) {
       beforeProofUrl = sessionRow.before_proof_url;
       beforeStoragePath = sessionRow.before_storage_path;
       startedAt = sessionRow.started_at;
-      activeSessionId = sessionRow.id;
     }
 
     let acceptedSwap: {
@@ -306,6 +336,7 @@ export async function POST(req: Request) {
         before_storage_path: beforeStoragePath,
         started_at: startedAt,
         points_awarded: pointsAwarded,
+        points_earned: pointsAwarded,
         chore_title_snapshot: chore.title,
         server_timestamp: serverTime.isoUtc,
       })
@@ -320,14 +351,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Không thể lưu lịch sử hoàn thành.' }, { status: 500 });
     }
 
-    if (activeSessionId) {
-      await supabase
-        .from('chore_sessions')
-        .update({ status: 'completed' })
-        .eq('id', activeSessionId);
-    }
+    // Complete any active lock sessions held by current user for this chore
+    await supabase
+      .from('chore_sessions')
+      .update({ status: 'completed' })
+      .eq('chore_id', chore.id)
+      .eq('profile_id', me.id)
+      .eq('status', 'in_progress');
 
-    if (autoAssignmentBonus && autoAssignmentBonus.onTime && autoAssignmentBonus.amount > 0) {
+    const effectiveAutoBonus =
+      autoAssignmentBonus && autoAssignmentBonus.onTime && autoAssignmentBonus.amount > 0
+        ? autoAssignmentBonus.amount
+        : Math.max(0, Math.round(Number(chore.bonus_amount || 0)));
+
+    if (effectiveAutoBonus > 0) {
       const { data: bonusCfgRow } = await supabase
         .from('app_settings')
         .select('value')
@@ -335,8 +372,8 @@ export async function POST(req: Request) {
         .maybeSingle();
       const bonusEnabled = Boolean(bonusCfgRow?.value?.enabled ?? true);
       if (bonusEnabled) {
-        let assignerName = 'Quản lý giao việc';
-        if (autoAssignmentBonus.assignedById) {
+        let assignerName = 'Hệ thống';
+        if (autoAssignmentBonus?.assignedById) {
           const { data: assigner } = await supabase
             .from('profiles')
             .select('display_name, username')
@@ -348,10 +385,10 @@ export async function POST(req: Request) {
         }
         await supabase.rpc('award_member_bonus', {
           p_recipient_id: me.id,
-          p_actor_id: autoAssignmentBonus.assignedById,
+          p_actor_id: autoAssignmentBonus?.assignedById || null,
           p_actor_name: assignerName,
-          p_amount: autoAssignmentBonus.amount,
-          p_reason: `Hoàn thành đúng hạn: ${chore.title}`,
+          p_amount: effectiveAutoBonus,
+          p_reason: `Hoàn thành: ${chore.title}`,
           p_log_id: insertedLog.id,
           p_assigned_chore_id: assignedChoreId,
           p_chore_id: chore.id,

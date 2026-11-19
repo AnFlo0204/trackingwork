@@ -28,7 +28,7 @@ export async function GET(req: Request) {
 
   const [logsRes, profilesRes, choresRes] = await Promise.all([
     query,
-    supabase.from('profiles').select('id, username, display_name'),
+    supabase.from('profiles').select('id, username, display_name, avatar_url'),
     supabase.from('chores').select('id, title, icon'),
   ]);
 
@@ -43,9 +43,16 @@ export async function GET(req: Request) {
       ? await supabase.from('chore_log_reactions').select('*').in('log_id', logIds)
       : { data: [] };
 
-  const profileMap = new Map<string, { username: string; display_name: string }>();
+  const profileMap = new Map<
+    string,
+    { username: string; display_name: string; avatar_url: string | null }
+  >();
   for (const p of profilesRes.data || []) {
-    profileMap.set(p.id, { username: p.username, display_name: p.display_name || p.username });
+    profileMap.set(p.id, {
+      username: p.username,
+      display_name: p.display_name || p.username,
+      avatar_url: p.avatar_url || null,
+    });
   }
   const choreMap = new Map<string, { title: string; icon: string }>();
   for (const c of choresRes.data || []) {
@@ -78,6 +85,7 @@ export async function GET(req: Request) {
       before_storage_path: l.before_storage_path || null,
       started_at: l.started_at || null,
       points_awarded: Number(l.points_awarded || 0),
+      points_earned: Number(l.points_earned ?? l.points_awarded ?? 0),
       chore_title_snapshot: l.chore_title_snapshot || chore?.title || 'Việc nhà',
       quality_status: l.quality_status || 'none',
       ok_count: rStats.ok,
@@ -90,6 +98,7 @@ export async function GET(req: Request) {
       created_at: l.created_at,
       member_name: member?.display_name || member?.username || 'Thành viên',
       member_username: member?.username || '',
+      member_avatar_url: member?.avatar_url || null,
       chore_title: chore?.title || l.chore_title_snapshot || 'Việc nhà',
       chore_icon: chore?.icon || 'sparkles',
     };

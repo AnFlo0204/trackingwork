@@ -128,7 +128,7 @@ export async function getAuthenticatedSession(): Promise<AuthenticatedSession | 
   const { data, error } = await supabase
     .from('profiles')
     .select(
-      'id, username, display_name, role, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
+      'id, username, display_name, role, avatar_url, is_active, can_assign_tasks, weekly_allowance, current_balance, created_at',
     )
     .eq('id', verified.uid)
     .maybeSingle();
@@ -141,6 +141,7 @@ export async function getAuthenticatedSession(): Promise<AuthenticatedSession | 
       username: data.username,
       display_name: data.display_name || data.username,
       role,
+      avatar_url: data.avatar_url || null,
       is_active: Boolean(data.is_active),
       can_assign_tasks: role === 'admin' ? true : Boolean(data.can_assign_tasks),
       weekly_allowance: Number(data.weekly_allowance || 0),

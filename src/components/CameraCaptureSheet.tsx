@@ -45,6 +45,7 @@ export function CameraCaptureSheet({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const acquiredTransientLockRef = useRef(false);
 
   const [isDesktop, setIsDesktop] = useState(false);
   const [mode, setMode] = useState<'idle' | 'webrtc' | 'processing' | 'preview'>('idle');
@@ -116,8 +117,35 @@ export function CameraCaptureSheet({
     stopStream();
 
     // On Laptop / Desktop PC, automatically open the Live Webcam Modal instead of file picker
-    if (chore && desktop && !tamperDetected) {
-      void startLiveCamera(true);
+    acquiredTransientLockRef.current = false;
+    if (chore && !tamperDetected) {
+      if (phase === 'single' && !sessionId) {
+        void signedFetch('/api/chores/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            choreId: chore.id,
+            assignedChoreId: assigned?.id || null,
+            cycleKey: assigned?.current_cycle_key || null,
+          }),
+        })
+          .then(async (lockRes) => {
+            if (lockRes.status === 409) {
+              const d = await lockRes.json().catch(() => null);
+              stopStream();
+              setMode('idle');
+              setError(d?.error || 'Công việc đang có người khác làm.');
+              return;
+            }
+            if (lockRes.ok) {
+              acquiredTransientLockRef.current = true;
+            }
+          })
+          .catch(() => undefined);
+      }
+      if (desktop) {
+        void startLiveCamera(true);
+      }
     }
 
     return () => {
@@ -163,6 +191,13 @@ export function CameraCaptureSheet({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ choreId: chore.id, phase }),
         });
+        if (tokRes.status === 409) {
+          const conflictJson = await tokRes.json().catch(() => null);
+          stopStream();
+          setMode('idle');
+          setError(conflictJson?.error || 'Công việc đang có người khác làm.');
+          return;
+        }
         if (tokRes.ok) {
           const tokData = await tokRes.json();
           if (tokData?.vnFormatted) vnFormatted = tokData.vnFormatted;
@@ -252,6 +287,11 @@ export function CameraCaptureSheet({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ choreId: chore.id, phase }),
         });
+        if (tokRes.status === 409) {
+          const conflictJson = await tokRes.json().catch(() => null);
+          setError(conflictJson?.error || 'Công việc đang có người khác làm.');
+          return;
+        }
         if (tokRes.ok) {
           const tokData = await tokRes.json();
           activeToken = tokData.token;
@@ -290,6 +330,7 @@ export function CameraCaptureSheet({
         return;
       }
 
+      acquiredTransientLockRef.current = false;
       if (watermarked.previewUrl) {
         URL.revokeObjectURL(watermarked.previewUrl);
       }
@@ -328,6 +369,12 @@ export function CameraCaptureSheet({
     stopStream();
     if (watermarked?.previewUrl) {
       URL.revokeObjectURL(watermarked.previewUrl);
+    }
+    if (acquiredTransientLockRef.current && chore) {
+      acquiredTransientLockRef.current = false;
+      void signedFetch(`/api/chores/start?choreId=${encodeURIComponent(chore.id)}`, {
+        method: 'DELETE',
+      }).catch(() => undefined);
     }
     onClose();
   }

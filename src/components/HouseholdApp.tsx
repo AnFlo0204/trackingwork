@@ -26,7 +26,7 @@ import type {
   ChoreLogItem,
   ProfilePublic,
 } from '@/lib/types';
-import { getInitials } from './ChoreIcon';
+import { MemberAvatar } from './MemberAvatar';
 import { LoginScreen } from './LoginScreen';
 import { InstallBanner } from './InstallBanner';
 import { ChoreBoard } from './ChoreBoard';
@@ -76,10 +76,12 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
 
   const [offlineCount, setOfflineCount] = useState(0);
   const [offlineNotice, setOfflineNotice] = useState<string | null>(null);
+  const [liveLockToast, setLiveLockToast] = useState<string | null>(null);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const [pullDist, setPullDist] = useState(0);
   const touchStartY = useRef<number | null>(null);
   const sentLocalPushKeys = useRef<Set<string>>(new Set());
+  const prevLockMapRef = useRef<Map<string, string> | null>(null);
 
   const { data, isLoading, isValidating, mutate } = useSWR<BootstrapPayload | null>(
     authed ? '/api/bootstrap' : null,
@@ -213,6 +215,36 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
       window.removeEventListener('online', handleOnline);
     };
   }, [authed, mutate, syncOfflineQueue]);
+
+  useEffect(() => {
+    if (!authed || !data) return;
+
+    const currentLocks = new Map<string, string>();
+    for (const s of data.activeSessions) {
+      if (s.status === 'in_progress') {
+        currentLocks.set(s.chore_id, s.id);
+      }
+    }
+
+    if (!prevLockMapRef.current) {
+      prevLockMapRef.current = currentLocks;
+      return;
+    }
+
+    const prevMap = prevLockMapRef.current;
+    for (const s of data.activeSessions) {
+      if (s.status !== 'in_progress' || s.profile_id === data.me.id) continue;
+      if (prevMap.get(s.chore_id) !== s.id) {
+        const choreTitle = data.chores.find((c) => c.id === s.chore_id)?.title || 'việc nhà';
+        setLiveLockToast(`🔒 ${s.member_name || 'Thành viên'} đang làm ${choreTitle}`);
+        const timer = setTimeout(() => setLiveLockToast(null), 4000);
+        prevLockMapRef.current = currentLocks;
+        return () => clearTimeout(timer);
+      }
+    }
+
+    prevLockMapRef.current = currentLocks;
+  }, [authed, data]);
 
   useEffect(() => {
     if (!authed || !data) return;
@@ -464,11 +496,13 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               <p className="text-sm font-bold tracking-tight truncate">trackingwork</p>
             </div>
 
-            {/* Profile Badge (no duplicate role text) */}
+            {/* Profile Badge (Custom Avatar + Short Name) */}
             <div className="rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] p-2.5 flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-[#059669]/15 text-[#059669] text-xs font-bold flex items-center justify-center shrink-0">
-                {getInitials(data.me.display_name)}
-              </div>
+              <MemberAvatar
+                name={data.me.display_name}
+                avatarUrl={data.me.avatar_url}
+                size="md"
+              />
               <div className="min-w-0 flex-1 flex items-center justify-between gap-1.5">
                 <p className="text-xs font-bold truncate">{data.me.display_name}</p>
                 {isAdmin && (
@@ -604,9 +638,11 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               }}
               className="min-w-0 flex items-center gap-2.5 min-h-[44px] text-left active:opacity-80"
             >
-              <div className="w-10 h-10 rounded-full bg-[#ECFDF5] dark:bg-[#064E3B] border border-[#A7F3D0] dark:border-[#047857] text-xs font-bold text-[#059669] dark:text-[#34D399] flex items-center justify-center shrink-0">
-                {getInitials(data.me.display_name)}
-              </div>
+              <MemberAvatar
+                name={data.me.display_name}
+                avatarUrl={data.me.avatar_url}
+                size="lg"
+              />
               <div className="min-w-0">
                 <h1 className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate leading-tight">
                   {pageTitle}
@@ -689,6 +725,12 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
           )}
 
           <InstallBanner />
+
+          {liveLockToast && (
+            <div className="mx-4 md:mx-6 mt-3 rounded-xl bg-[#111827] dark:bg-[#F8FAFC] text-white dark:text-[#0F172A] px-3.5 py-2 text-xs font-semibold shadow-sm">
+              {liveLockToast}
+            </div>
+          )}
 
           {(offlineCount > 0 || offlineNotice) && (
             <div className="mx-4 md:mx-6 mt-3 rounded-2xl bg-[#FFFBEB] dark:bg-[#451A03] border border-[#FDE68A] dark:border-[#92400E] px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">

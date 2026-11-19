@@ -75,7 +75,7 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const session = await getAuthenticatedSession();
   const me = session?.profile;
-  if (!session || !me || me.role !== 'admin') {
+  if (!session || !me || (me.role !== 'admin' && !me.can_assign_tasks)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -117,6 +117,9 @@ export async function PATCH(req: Request) {
     }
 
     const { data: prevChore } = await supabase.from('chores').select('*').eq('id', id).maybeSingle();
+    if (!prevChore) {
+      return NextResponse.json({ error: 'Không tìm thấy công việc.' }, { status: 404 });
+    }
 
     const updates: Record<string, unknown> = {};
     if (typeof body.title === 'string' && body.title.trim()) updates.title = body.title.trim();
@@ -145,22 +148,60 @@ export async function PATCH(req: Request) {
     }
     if (typeof body.is_active === 'boolean') updates.is_active = body.is_active;
 
-    if (prevChore) {
-      await recordAuditLog({
-        actorName: me.display_name,
-        actionType: 'EDIT_CHORE',
-        targetSummary: `Sửa đầu việc "${prevChore.title}" -> "${updates.title || prevChore.title}" (Điểm ${prevChore.points}->${updates.points ?? prevChore.points}, Phạt ${Number(prevChore.penalty_amount).toLocaleString('vi-VN')}đ->${Number(updates.penalty_amount ?? prevChore.penalty_amount).toLocaleString('vi-VN')}đ)`,
-        refId: id,
-      });
-    }
-
-    const { error } = await supabase.from('chores').update(updates).eq('id', id);
+    const { data: updatedChore, error } = await supabase
+      .from('chores')
+      .update(updates)
+      .eq('id', id)
+      .select('*')
+      .single();
     if (error) {
       return NextResponse.json({ error: 'Không thể cập nhật công việc.' }, { status: 500 });
     }
 
+    const diffs: string[] = [];
+    if (typeof updates.title === 'string' && updates.title !== prevChore.title) {
+      diffs.push(`Tên "${prevChore.title}" → "${updates.title}"`);
+    }
+    if (typeof updates.frequency === 'string' && updates.frequency !== prevChore.frequency) {
+      diffs.push(`Chu kỳ ${prevChore.frequency} → ${updates.frequency}`);
+    }
+    if (typeof updates.points === 'number' && updates.points !== prevChore.points) {
+      diffs.push(`${prevChore.points} → ${updates.points} điểm`);
+    }
+    if (
+      typeof updates.bonus_amount === 'number' &&
+      updates.bonus_amount !== Number(prevChore.bonus_amount || 0)
+    ) {
+      diffs.push(
+        `Thưởng ${Number(prevChore.bonus_amount || 0).toLocaleString('vi-VN')}đ → ${updates.bonus_amount.toLocaleString('vi-VN')}đ`,
+      );
+    }
+    if (
+      typeof updates.penalty_amount === 'number' &&
+      updates.penalty_amount !== Number(prevChore.penalty_amount || 0)
+    ) {
+      diffs.push(
+        `Phạt ${Number(prevChore.penalty_amount || 0).toLocaleString('vi-VN')}đ → ${updates.penalty_amount.toLocaleString('vi-VN')}đ`,
+      );
+    }
+
+    const pointsConfigChanged =
+      typeof updates.points === 'number' ||
+      typeof updates.bonus_amount === 'number' ||
+      typeof updates.penalty_amount === 'number';
+
+    await recordAuditLog({
+      actorName: me.display_name,
+      actionType: pointsConfigChanged ? 'UPDATE_CHORE_POINTS' : 'EDIT_CHORE',
+      targetSummary:
+        diffs.length > 0
+          ? `${me.display_name} sửa [${prevChore.title}]: ${diffs.join(', ')}`
+          : `${me.display_name} cập nhật [${prevChore.title}]`,
+      refId: id,
+    });
+
     await bumpSyncSignal('all');
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, chore: updatedChore });
   } catch (err) {
     console.error('Update chore error:', err);
     return NextResponse.json({ error: 'Lỗi cập nhật công việc.' }, { status: 500 });

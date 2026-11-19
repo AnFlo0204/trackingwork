@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     const { data: profiles, error } = await supabase
       .from('profiles')
       .select(
-        'id, username, display_name, role, pin, password_hash, is_active, can_assign_tasks, weekly_allowance, current_balance, failed_attempts, locked_until, created_at',
+        'id, username, display_name, role, avatar_url, pin, password_hash, is_active, can_assign_tasks, weekly_allowance, current_balance, failed_attempts, locked_until, created_at',
       );
 
     if (error || !profiles) {
@@ -134,6 +134,7 @@ export async function POST(req: Request) {
         username: matched.username,
         display_name: matched.display_name || matched.username,
         role,
+        avatar_url: matched.avatar_url || null,
         is_active: true,
         can_assign_tasks: role === 'admin' ? true : Boolean(matched.can_assign_tasks),
         weekly_allowance: Number(matched.weekly_allowance || 0),

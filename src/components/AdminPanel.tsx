@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Camera,
   CheckCircle2,
   ClipboardList,
   Database,
@@ -12,7 +13,9 @@ import {
   FileSpreadsheet,
   Gift,
   KeyRound,
+  Minus,
   PartyPopper,
+  Pencil,
   Plus,
   RotateCcw,
   Shield,
@@ -38,8 +41,10 @@ import type {
 } from '@/lib/types';
 import { formatIsoToVn } from '@/lib/time';
 import { signedFetch } from '@/lib/requestSigner';
+import { compressAvatarSquareWebp } from '@/lib/avatarClient';
 import { CHORE_ICON_OPTIONS, ChoreIcon } from './ChoreIcon';
 import { AssignTasksPanel } from './AssignTasksPanel';
+import { MemberAvatar } from './MemberAvatar';
 import { ProtectedImage } from './ProtectedImage';
 import type { BonusTarget } from './AwardBonusModal';
 
@@ -127,12 +132,37 @@ export function AdminPanel({
   const [choreTitle, setChoreTitle] = useState('');
   const [choreIcon, setChoreIcon] = useState('sparkles');
   const [chorePoints, setChorePoints] = useState('15');
+  const [choreBonus, setChoreBonus] = useState('0');
   const [choreCooldown, setChoreCooldown] = useState('30');
   const [choreFreq, setChoreFreq] = useState<ChoreFrequency>('daily');
   const [chorePenalty, setChorePenalty] = useState('20000');
   const [choreRequireBA, setChoreRequireBA] = useState(false);
   const [choreMinDuration, setChoreMinDuration] = useState('5');
   const [savingChore, setSavingChore] = useState(false);
+
+  // Inline quick chore editor state (in-place per chore row)
+  const [inlineEditId, setInlineEditId] = useState<string | null>(null);
+  const [inlineDraft, setInlineDraft] = useState<{
+    title: string;
+    frequency: ChoreFrequency;
+    points: string;
+    bonus_amount: string;
+    penalty_amount: string;
+    cooldown_minutes: string;
+    require_before_after: boolean;
+    min_duration_minutes: string;
+  }>({
+    title: '',
+    frequency: 'daily',
+    points: '10',
+    bonus_amount: '0',
+    penalty_amount: '20000',
+    cooldown_minutes: '30',
+    require_before_after: false,
+    min_duration_minutes: '5',
+  });
+  const [savingInlineId, setSavingInlineId] = useState<string | null>(null);
+  const [uploadingAvatarId, setUploadingAvatarId] = useState<string | null>(null);
 
   // Member form state
   const [memUsername, setMemUsername] = useState('');
@@ -265,6 +295,7 @@ export function AdminPanel({
     setChoreTitle(c.title);
     setChoreIcon(c.icon);
     setChorePoints(String(c.points));
+    setChoreBonus(String(c.bonus_amount ?? 0));
     setChoreCooldown(String(c.cooldown_minutes));
     setChoreFreq(c.frequency);
     setChorePenalty(String(c.penalty_amount || 20000));
@@ -272,11 +303,92 @@ export function AdminPanel({
     setChoreMinDuration(String(c.min_duration_minutes ?? 5));
   }
 
+  function openInlineEdit(c: Chore) {
+    if (inlineEditId === c.id) {
+      setInlineEditId(null);
+      return;
+    }
+    setInlineEditId(c.id);
+    setInlineDraft({
+      title: c.title,
+      frequency: c.frequency,
+      points: String(c.points ?? 0),
+      bonus_amount: String(c.bonus_amount ?? 0),
+      penalty_amount: String(c.penalty_amount ?? 0),
+      cooldown_minutes: String(c.cooldown_minutes ?? 0),
+      require_before_after: Boolean(c.require_before_after),
+      min_duration_minutes: String(c.min_duration_minutes ?? 0),
+    });
+  }
+
+  async function updateChoreConfig(
+    choreId: string,
+    updates: Partial<{
+      title: string;
+      frequency: ChoreFrequency;
+      points: number;
+      bonus_amount: number;
+      penalty_amount: number;
+      cooldown_minutes: number;
+      require_before_after: boolean;
+      min_duration_minutes: number;
+    }>,
+  ) {
+    setSavingInlineId(choreId);
+    try {
+      const res = await signedFetch('/api/admin/chores', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: choreId, ...updates }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        notify('err', data?.error || 'Không thể cập nhật hạng mục.');
+        return;
+      }
+      setInlineEditId((prev) => (prev === choreId ? null : prev));
+      await onRefresh();
+      notify('ok', 'Đã lưu cấu hình việc nhà.');
+    } finally {
+      setSavingInlineId(null);
+    }
+  }
+
+  async function handleUploadAvatar(memberId: string, e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingAvatarId(memberId);
+    try {
+      const { blob, mime } = await compressAvatarSquareWebp(file);
+      const ext = mime === 'image/jpeg' ? 'jpg' : 'webp';
+      const fd = new FormData();
+      fd.append('memberId', memberId);
+      fd.append('avatar', blob, `avatar.${ext}`);
+      const res = await signedFetch('/api/admin/members/avatar', {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        notify('err', data?.error || 'Không thể tải avatar.');
+        return;
+      }
+      await onRefresh();
+      notify('ok', 'Đã cập nhật avatar.');
+    } catch (err) {
+      notify('err', err instanceof Error ? err.message : 'Lỗi xử lý ảnh đại diện.');
+    } finally {
+      setUploadingAvatarId(null);
+    }
+  }
+
   function resetChoreForm() {
     setEditingChoreId(null);
     setChoreTitle('');
     setChoreIcon('sparkles');
     setChorePoints('15');
+    setChoreBonus('0');
     setChoreCooldown('30');
     setChoreFreq('daily');
     setChorePenalty('20000');
@@ -294,6 +406,7 @@ export function AdminPanel({
         title: choreTitle.trim(),
         icon: choreIcon,
         points: Number(chorePoints || 0),
+        bonus_amount: Number(choreBonus || 0),
         cooldown_minutes: Number(choreCooldown || 0),
         frequency: choreFreq,
         penalty_amount: Number(chorePenalty || 20000),
@@ -881,7 +994,7 @@ export function AdminPanel({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <div>
                 <label className="block text-[11px] font-semibold text-[#6B7280] dark:text-[#94A3B8] mb-1">
                   Điểm
@@ -891,6 +1004,19 @@ export function AdminPanel({
                   min={0}
                   value={chorePoints}
                   onChange={(e) => setChorePoints(e.target.value)}
+                  className="w-full h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-[#6B7280] dark:text-[#94A3B8] mb-1">
+                  Thưởng (đ)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={5000}
+                  value={choreBonus}
+                  onChange={(e) => setChoreBonus(e.target.value)}
                   className="w-full h-12 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] text-sm tabular-nums"
                 />
               </div>
@@ -963,65 +1089,276 @@ export function AdminPanel({
           </form>
 
           <div className="space-y-2">
-            {chores.map((c, idx) => (
-              <div
-                key={c.id}
-                className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 flex items-center justify-between gap-2"
-              >
-                <button
-                  type="button"
-                  onClick={() => startEditChore(c)}
-                  className="flex items-center gap-2.5 min-w-0 text-left flex-1"
+            {chores.map((c, idx) => {
+              const isInlineOpen = inlineEditId === c.id;
+              const isBusy = savingInlineId === c.id;
+              return (
+                <div
+                  key={c.id}
+                  className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-3"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center shrink-0">
-                    <ChoreIcon icon={c.icon} className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
-                      {c.title}
-                      {c.require_before_after && (
-                        <span className="ml-1.5 text-[10px] font-semibold text-[#D97706]">
-                          (Trước/Sau {c.min_duration_minutes}p)
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
-                      +{c.points} đ • Phạt {c.penalty_amount.toLocaleString('vi-VN')}đ • Chờ{' '}
-                      {c.cooldown_minutes}p
-                    </p>
-                  </div>
-                </button>
+                  <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openInlineEdit(c)}
+                      className="flex items-center gap-2.5 min-w-0 text-left flex-1"
+                    >
+                      <div className="w-10 h-10 rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center shrink-0">
+                        <ChoreIcon icon={c.icon} className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
+                          {c.title}
+                          {c.require_before_after && (
+                            <span className="ml-1.5 text-[10px] font-semibold text-[#D97706]">
+                              (Trước/Sau {c.min_duration_minutes}p)
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
+                          +{c.points} điểm
+                          {c.bonus_amount > 0 ? ` • Thưởng ${c.bonus_amount.toLocaleString('vi-VN')}đ` : ''}
+                          {` • Phạt ${c.penalty_amount.toLocaleString('vi-VN')}đ`}
+                        </p>
+                      </div>
+                    </button>
 
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    disabled={idx === 0}
-                    onClick={() => moveChore(c.id, 'up')}
-                    aria-label="Lên"
-                    className="w-9 h-9 rounded-lg border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center disabled:opacity-30"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={idx === chores.length - 1}
-                    onClick={() => moveChore(c.id, 'down')}
-                    aria-label="Xuống"
-                    className="w-9 h-9 rounded-lg border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center disabled:opacity-30"
-                  >
-                    <ArrowDown className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => deleteChore(c.id)}
-                    aria-label="Xóa"
-                    className="w-9 h-9 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2] dark:hover:bg-[#450A0A] flex items-center justify-center"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    <div className="flex items-center gap-1 shrink-0 ml-auto">
+                      {/* Quick inline -5 / +5 points stepper */}
+                      <div className="inline-flex items-center rounded-lg border border-[#E5E7EB] dark:border-[#334155] bg-[#F8F9FA] dark:bg-[#0F172A] overflow-hidden">
+                        <button
+                          type="button"
+                          disabled={isBusy || c.points <= 0}
+                          onClick={() =>
+                            void updateChoreConfig(c.id, { points: Math.max(0, c.points - 5) })
+                          }
+                          aria-label={`Giảm điểm ${c.title}`}
+                          className="w-7 h-8 flex items-center justify-center text-[#6B7280] hover:bg-white dark:hover:bg-[#1E293B] disabled:opacity-30"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="px-1.5 text-[11px] font-bold tabular-nums text-[#059669]">
+                          {c.points}đm
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void updateChoreConfig(c.id, { points: c.points + 5 })}
+                          aria-label={`Tăng điểm ${c.title}`}
+                          className="w-7 h-8 flex items-center justify-center text-[#059669] hover:bg-white dark:hover:bg-[#1E293B] disabled:opacity-30"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => openInlineEdit(c)}
+                        aria-label={`Sửa ${c.title}`}
+                        className={`h-8 px-2.5 rounded-lg border text-xs font-semibold inline-flex items-center gap-1 ${
+                          isInlineOpen
+                            ? 'border-[#059669] bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669]'
+                            : 'border-[#E5E7EB] dark:border-[#334155] text-[#374151] dark:text-[#CBD5E1]'
+                        }`}
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Sửa
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => moveChore(c.id, 'up')}
+                        aria-label="Lên"
+                        className="w-8 h-8 rounded-lg border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center disabled:opacity-30"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === chores.length - 1}
+                        onClick={() => moveChore(c.id, 'down')}
+                        aria-label="Xuống"
+                        className="w-8 h-8 rounded-lg border border-[#E5E7EB] dark:border-[#334155] flex items-center justify-center disabled:opacity-30"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteChore(c.id)}
+                        aria-label="Xóa"
+                        className="w-8 h-8 rounded-lg text-[#DC2626] hover:bg-[#FEF2F2] dark:hover:bg-[#450A0A] flex items-center justify-center"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {isInlineOpen && (
+                    <div className="rounded-xl bg-[#F8F9FA] dark:bg-[#0F172A] border border-[#E5E7EB] dark:border-[#334155] p-3 space-y-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-semibold text-[#6B7280] mb-0.5">
+                            Tên việc
+                          </label>
+                          <input
+                            type="text"
+                            value={inlineDraft.title}
+                            onChange={(e) =>
+                              setInlineDraft((d) => ({ ...d, title: e.target.value }))
+                            }
+                            className="w-full h-9 px-2.5 rounded-lg border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-[#6B7280] mb-0.5">
+                            Chu kỳ
+                          </label>
+                          <select
+                            value={inlineDraft.frequency}
+                            onChange={(e) =>
+                              setInlineDraft((d) => ({
+                                ...d,
+                                frequency: e.target.value as ChoreFrequency,
+                              }))
+                            }
+                            className="w-full h-9 px-2.5 rounded-lg border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-xs"
+                          >
+                            <option value="daily">Hàng ngày</option>
+                            <option value="weekly">Hàng tuần</option>
+                            <option value="always">Tự do</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-semibold text-[#6B7280] mb-0.5">
+                            Điểm cộng
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={inlineDraft.points}
+                            onChange={(e) =>
+                              setInlineDraft((d) => ({ ...d, points: e.target.value }))
+                            }
+                            className="w-full h-9 px-2.5 rounded-lg border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-xs tabular-nums"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-[#6B7280] mb-0.5">
+                            Thưởng (VNĐ)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={5000}
+                            value={inlineDraft.bonus_amount}
+                            onChange={(e) =>
+                              setInlineDraft((d) => ({ ...d, bonus_amount: e.target.value }))
+                            }
+                            className="w-full h-9 px-2.5 rounded-lg border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-xs tabular-nums"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-[#6B7280] mb-0.5">
+                            Phạt (VNĐ)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={5000}
+                            value={inlineDraft.penalty_amount}
+                            onChange={(e) =>
+                              setInlineDraft((d) => ({ ...d, penalty_amount: e.target.value }))
+                            }
+                            className="w-full h-9 px-2.5 rounded-lg border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-xs tabular-nums"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-[#6B7280] mb-0.5">
+                            Chờ (phút)
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={inlineDraft.cooldown_minutes}
+                            onChange={(e) =>
+                              setInlineDraft((d) => ({ ...d, cooldown_minutes: e.target.value }))
+                            }
+                            className="w-full h-9 px-2.5 rounded-lg border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-xs tabular-nums"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                        <label className="inline-flex items-center gap-2 text-xs font-medium cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={inlineDraft.require_before_after}
+                            onChange={(e) =>
+                              setInlineDraft((d) => ({
+                                ...d,
+                                require_before_after: e.target.checked,
+                              }))
+                            }
+                            className="w-4 h-4 accent-[#059669]"
+                          />
+                          Trước/Sau
+                          {inlineDraft.require_before_after && (
+                            <input
+                              type="number"
+                              min={0}
+                              max={240}
+                              value={inlineDraft.min_duration_minutes}
+                              onChange={(e) =>
+                                setInlineDraft((d) => ({
+                                  ...d,
+                                  min_duration_minutes: e.target.value,
+                                }))
+                              }
+                              className="w-16 h-8 px-2 rounded-lg border border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] text-xs tabular-nums"
+                            />
+                          )}
+                        </label>
+
+                        <div className="flex items-center gap-1.5 ml-auto">
+                          <button
+                            type="button"
+                            onClick={() => setInlineEditId(null)}
+                            className="h-8 px-3 rounded-lg border border-[#E5E7EB] dark:border-[#334155] text-xs font-medium"
+                          >
+                            Huỷ
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() =>
+                              void updateChoreConfig(c.id, {
+                                title: inlineDraft.title.trim() || c.title,
+                                frequency: inlineDraft.frequency,
+                                points: Number(inlineDraft.points || 0),
+                                bonus_amount: Number(inlineDraft.bonus_amount || 0),
+                                penalty_amount: Number(inlineDraft.penalty_amount || 0),
+                                cooldown_minutes: Number(inlineDraft.cooldown_minutes || 0),
+                                require_before_after: inlineDraft.require_before_after,
+                                min_duration_minutes: inlineDraft.require_before_after
+                                  ? Number(inlineDraft.min_duration_minutes || 0)
+                                  : 0,
+                              })
+                            }
+                            className="h-8 px-3.5 rounded-lg bg-[#059669] text-white text-xs font-semibold"
+                          >
+                            {isBusy ? 'Đang lưu...' : 'Lưu'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1104,22 +1441,78 @@ export function AdminPanel({
           </div>
 
           <div className="space-y-2.5">
+            {members
+              .filter((m) => m.id === currentUserId)
+              .map((adminProfile) => (
+                <div
+                  key={adminProfile.id}
+                  className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 flex items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <label className="relative cursor-pointer shrink-0 group">
+                      <MemberAvatar
+                        name={adminProfile.display_name}
+                        avatarUrl={adminProfile.avatar_url}
+                        size="lg"
+                      />
+                      <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#059669] text-white flex items-center justify-center shadow">
+                        <Camera className="w-3 h-3" />
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingAvatarId === adminProfile.id}
+                        onChange={(e) => void handleUploadAvatar(adminProfile.id, e)}
+                        className="sr-only"
+                      />
+                    </label>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
+                        {adminProfile.display_name}{' '}
+                        <span className="text-[11px] font-semibold text-[#059669]">(Admin)</span>
+                      </p>
+                      <p className="text-xs text-[#6B7280] dark:text-[#94A3B8]">
+                        {uploadingAvatarId === adminProfile.id
+                          ? 'Đang tải avatar...'
+                          : 'Bấm vào ảnh để đổi avatar'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
             {memberRoster.map((m) => (
               <div
                 key={m.id}
                 className="bg-white dark:bg-[#1E293B] border border-[#E5E7EB] dark:border-[#334155] rounded-2xl p-3.5 space-y-3"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
-                      {m.display_name}{' '}
-                      {!m.is_active && (
-                        <span className="text-[11px] font-semibold text-[#DC2626]">(Đã khóa)</span>
-                      )}
-                    </p>
-                    <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
-                      @{m.username} • Số dư: {m.current_balance.toLocaleString('vi-VN')}đ
-                    </p>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <label className="relative cursor-pointer shrink-0">
+                      <MemberAvatar name={m.display_name} avatarUrl={m.avatar_url} size="lg" />
+                      <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#059669] text-white flex items-center justify-center shadow">
+                        <Camera className="w-3 h-3" />
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingAvatarId === m.id}
+                        onChange={(e) => void handleUploadAvatar(m.id, e)}
+                        className="sr-only"
+                      />
+                    </label>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-[#111827] dark:text-[#F8FAFC] truncate">
+                        {m.display_name}{' '}
+                        {!m.is_active && (
+                          <span className="text-[11px] font-semibold text-[#DC2626]">(Đã khóa)</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums">
+                        @{m.username} • {m.current_balance.toLocaleString('vi-VN')}đ
+                        {uploadingAvatarId === m.id ? ' • Đang tải ảnh...' : ''}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">

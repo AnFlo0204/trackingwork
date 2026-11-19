@@ -11,6 +11,7 @@ export interface ProfilePublic {
   username: string;
   display_name: string;
   role: UserRole;
+  avatar_url?: string | null;
   is_active: boolean;
   can_assign_tasks: boolean;
   weekly_allowance: number;
@@ -44,7 +45,10 @@ export interface ChoreSessionItem {
   before_storage_path: string;
   started_at: string;
   unlock_at: string;
+  expires_at?: string | null;
   status: 'in_progress' | 'completed' | 'cancelled';
+  member_name?: string;
+  member_avatar_url?: string | null;
 }
 
 export interface ChoreLogItem {
@@ -60,6 +64,7 @@ export interface ChoreLogItem {
   before_storage_path: string | null;
   started_at: string | null;
   points_awarded: number;
+  points_earned?: number;
   chore_title_snapshot: string;
   quality_status: 'none' | 'ok' | 'flagged' | 'reopened';
   ok_count: number;
@@ -72,6 +77,7 @@ export interface ChoreLogItem {
   created_at: string;
   member_name: string;
   member_username: string;
+  member_avatar_url?: string | null;
   chore_title: string;
   chore_icon: string;
 }
@@ -162,6 +168,7 @@ export interface FundTransactionItem {
 export interface WeeklySettlementRow {
   profile_id: string;
   display_name: string;
+  avatar_url?: string | null;
   weekly_allowance: number;
   total_penalties: number;
   total_bounty_paid: number;
