@@ -98,12 +98,29 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   );
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let reloaded = false;
+    const onControllerChange = () => {
+      if (hadController && !reloaded) {
+        reloaded = true;
+        window.location.reload();
+      }
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+    navigator.serviceWorker
+      .register('/sw.js', { updateViaCache: 'none' })
+      .then((reg) => reg.update().catch(() => undefined))
+      .catch(() => undefined);
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+    };
+  }, []);
+
+  useEffect(() => {
     const saved = localStorage.getItem('hct_dark');
     if (saved === '1') setDarkMode(true);
 
-    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => undefined);
-    }
     if (typeof Notification !== 'undefined') {
       setNotifPermission(Notification.permission);
     } else {
@@ -436,8 +453,8 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
       className="min-h-screen w-full bg-[#F8F9FA] dark:bg-[#0F172A] text-[#111827] dark:text-[#F8FAFC]"
     >
       <div className="max-w-7xl mx-auto md:flex min-h-screen">
-        {/* Desktop & iPad Left Sidebar (240px fixed width, visible >= 768px) */}
-        <aside className="hidden md:flex md:flex-col md:w-[240px] shrink-0 sticky top-0 h-screen border-r border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] px-3.5 py-5 justify-between">
+        {/* Desktop & iPad Left Sidebar (220px fixed width, visible >= 768px) */}
+        <aside className="hidden md:flex md:flex-col md:w-[220px] shrink-0 sticky top-0 h-screen border-r border-[#E5E7EB] dark:border-[#334155] bg-white dark:bg-[#1E293B] px-3 py-4 justify-between">
           <div className="space-y-5">
             {/* Brand Logo */}
             <div className="flex items-center gap-2.5 px-1.5">
@@ -693,7 +710,11 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
             </div>
           )}
 
-          <main className="flex-1 px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
+          <main
+            className={`flex-1 w-full mx-auto px-4 py-4 pb-24 md:px-6 md:py-5 md:pb-8 ${
+              tab === 'admin' ? 'max-w-6xl' : 'max-w-4xl'
+            }`}
+          >
             {tab === 'chores' && (
               <ChoreBoard
                 me={data.me}
