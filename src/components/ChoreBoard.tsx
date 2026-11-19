@@ -458,79 +458,93 @@ export function ChoreBoard({
               return (
                 <div
                   key={a.id}
-                  className="px-3.5 sm:px-4 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5"
+                  className="px-3.5 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5"
                 >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                        isMissed
-                          ? 'bg-[#FEF2F2] dark:bg-[#450A0A] text-[#DC2626]'
-                          : 'bg-[#FFFBEB] dark:bg-[#451A03] text-[#D97706]'
-                      }`}
-                    >
-                      <ChoreIcon icon={a.chore_icon} className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h3 className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate">
-                          {a.chore_title}
-                        </h3>
-                        {isMissed && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-[#DC2626]">
-                            <AlertCircle className="w-3 h-3" />
-                            Quá hạn
-                          </span>
-                        )}
-                        {isSwappedToMe && (
-                          <span className="px-1.5 py-0.5 rounded bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] text-[10px] font-bold">
-                            Làm hộ
-                          </span>
-                        )}
-                        {isOpenSwapByMe && a.active_swap && (
-                          <button
-                            type="button"
-                            onClick={() => respondSwap(a.active_swap!.id, 'cancel')}
-                            className="px-1.5 py-0.5 rounded bg-[#FFFBEB] dark:bg-[#451A03] text-[#B45309] text-[10px] font-semibold"
-                          >
-                            Hủy đổi ca
-                          </button>
-                        )}
+                  <div className="flex items-start sm:items-center justify-between gap-2.5 sm:flex-1 sm:min-w-0">
+                    <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+                      <div
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 ${
+                          isMissed
+                            ? 'bg-[#FEF2F2] dark:bg-[#450A0A] text-[#DC2626]'
+                            : 'bg-[#FFFBEB] dark:bg-[#451A03] text-[#D97706]'
+                        }`}
+                      >
+                        <ChoreIcon icon={a.chore_icon} className="w-4 h-4" />
                       </div>
-                      <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] flex items-center gap-1 tabular-nums truncate">
-                        <CalendarClock className="w-3 h-3 shrink-0" />
-                        {describeAssignmentSchedule(a)}
-                        {a.bonus_amount > 0 && (
-                          <span className="text-[#059669] font-semibold">
-                            • +{formatK(a.bonus_amount)}
-                          </span>
-                        )}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h3 className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] leading-snug">
+                            {a.chore_title}
+                          </h3>
+                          {isMissed && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-[#DC2626] whitespace-nowrap">
+                              <AlertCircle className="w-3 h-3" />
+                              Quá hạn
+                            </span>
+                          )}
+                          {isSwappedToMe && (
+                            <span className="px-1.5 py-0.5 rounded bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] text-[10px] font-bold whitespace-nowrap">
+                              Làm hộ
+                            </span>
+                          )}
+                          {isOpenSwapByMe && a.active_swap && (
+                            <button
+                              type="button"
+                              onClick={() => respondSwap(a.active_swap!.id, 'cancel')}
+                              className="px-1.5 py-0.5 rounded bg-[#FFFBEB] dark:bg-[#451A03] text-[#B45309] text-[10px] font-semibold whitespace-nowrap"
+                            >
+                              Hủy đổi ca
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#6B7280] dark:text-[#94A3B8] flex items-center gap-1 tabular-nums mt-0.5">
+                          <CalendarClock className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{describeAssignmentSchedule(a)}</span>
+                          {a.bonus_amount > 0 && (
+                            <span className="text-[#059669] font-semibold whitespace-nowrap">
+                              • +{formatK(a.bonus_amount)}
+                            </span>
+                          )}
+                        </p>
+                      </div>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        haptic(10);
+                        setDetailTarget({ kind: 'assigned', assignment: a, chore: linkedChore });
+                      }}
+                      aria-label={`Tùy chọn ${a.chore_title}`}
+                      className="sm:hidden w-8 h-8 rounded-lg hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] flex items-center justify-center text-[#6B7280] dark:text-[#94A3B8] shrink-0"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                  <div className="flex items-center gap-1.5 w-full sm:w-auto sm:shrink-0">
                     {isMissed ? (
-                      <span className="px-2.5 py-1.5 rounded-lg bg-[#FEF2F2] dark:bg-[#450A0A] text-[11px] font-semibold text-[#DC2626]">
+                      <span className="w-full sm:w-auto text-center px-2.5 py-2 sm:py-1.5 rounded-xl sm:rounded-lg bg-[#FEF2F2] dark:bg-[#450A0A] text-xs sm:text-[11px] font-semibold text-[#DC2626]">
                         Trừ quỹ
                       </span>
                     ) : isPending && linkedChore ? (
                       lockedByOther && session ? (
-                        <div className="flex items-center gap-1">
-                          <span className="h-9 px-2.5 rounded-xl bg-[#F3F4F6] dark:bg-[#0F172A] text-[#6B7280] dark:text-[#94A3B8] text-xs font-semibold inline-flex items-center gap-1.5">
-                            <Lock className="w-3 h-3" />
+                        <div className={`w-full sm:w-auto ${canReleaseLock ? 'grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-1' : 'flex'}`}>
+                          <span className="h-10 sm:h-9 px-3 rounded-xl bg-[#F3F4F6] dark:bg-[#0F172A] text-[#6B7280] dark:text-[#94A3B8] text-xs font-semibold inline-flex items-center justify-center gap-1.5 w-full sm:w-auto">
+                            <Lock className="w-3 h-3 shrink-0" />
                             <MemberAvatar
                               name={session.member_name || ''}
                               avatarUrl={session.member_avatar_url}
                               size="xs"
                             />
-                            <span className="truncate max-w-[100px]">{session.member_name} đang làm</span>
+                            <span className="truncate">{session.member_name} đang làm</span>
                           </span>
                           {canReleaseLock && (
                             <button
                               type="button"
                               disabled={busyLockId === session.id}
                               onClick={() => cancelSession(session.id)}
-                              className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                              className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626] w-full sm:w-auto"
                             >
                               Hủy
                             </button>
@@ -543,14 +557,14 @@ export function ChoreBoard({
                             onClick={() =>
                               onStartCapture({ chore: linkedChore, assignedChore: a, phase: 'before' })
                             }
-                            className="h-9 px-3.5 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                            className="w-full sm:w-auto h-10 sm:h-9 px-3.5 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5"
                           >
                             <Play className="w-3.5 h-3.5" />
                             Bắt đầu
                           </button>
                         ) : unlockRemainMs > 0 ? (
-                          <div className="flex items-center gap-1">
-                            <span className="h-9 px-3 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold inline-flex items-center gap-1 tabular-nums">
+                          <div className={`w-full sm:w-auto ${canReleaseLock ? 'grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-1' : 'flex'}`}>
+                            <span className="h-10 sm:h-9 px-3 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold inline-flex items-center justify-center gap-1 tabular-nums w-full sm:w-auto">
                               <Timer className="w-3.5 h-3.5" />
                               {formatCountdown(unlockRemainMs)}
                             </span>
@@ -559,14 +573,14 @@ export function ChoreBoard({
                                 type="button"
                                 disabled={busyLockId === session.id}
                                 onClick={() => cancelSession(session.id)}
-                                className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                                className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626] w-full sm:w-auto"
                               >
                                 Hủy
                               </button>
                             )}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1">
+                          <div className={`w-full sm:w-auto ${canReleaseLock ? 'grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-1' : 'flex'}`}>
                             <button
                               type="button"
                               onClick={() =>
@@ -577,7 +591,7 @@ export function ChoreBoard({
                                   sessionId: session.id,
                                 })
                               }
-                              className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                              className="h-10 sm:h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
                             >
                               <Camera className="w-3.5 h-3.5" />
                               Chụp xong
@@ -587,7 +601,7 @@ export function ChoreBoard({
                                 type="button"
                                 disabled={busyLockId === session.id}
                                 onClick={() => cancelSession(session.id)}
-                                className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                                className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626] w-full sm:w-auto"
                               >
                                 Hủy
                               </button>
@@ -595,7 +609,7 @@ export function ChoreBoard({
                           </div>
                         )
                       ) : lockedByMe && session ? (
-                        <div className="flex items-center gap-1">
+                        <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:items-center sm:gap-1 sm:w-auto">
                           <button
                             type="button"
                             onClick={() =>
@@ -606,7 +620,7 @@ export function ChoreBoard({
                                 sessionId: session.id,
                               })
                             }
-                            className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                            className="h-10 sm:h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
                           >
                             <Camera className="w-3.5 h-3.5" />
                             Chụp xong
@@ -615,18 +629,18 @@ export function ChoreBoard({
                             type="button"
                             disabled={busyLockId === session.id}
                             onClick={() => cancelSession(session.id)}
-                            className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                            className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626] w-full sm:w-auto"
                           >
                             Hủy
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1">
+                        <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:items-center sm:gap-1 sm:w-auto">
                           <button
                             type="button"
                             disabled={busyLockId === linkedChore.id}
                             onClick={() => void startLockOnly(linkedChore, a)}
-                            className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-[#374151] dark:text-[#CBD5E1] text-xs font-semibold inline-flex items-center gap-1"
+                            className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-[#374151] dark:text-[#CBD5E1] text-xs font-semibold inline-flex items-center justify-center gap-1 w-full sm:w-auto"
                           >
                             <Play className="w-3 h-3" />
                             Bắt đầu
@@ -636,7 +650,7 @@ export function ChoreBoard({
                             onClick={() =>
                               onStartCapture({ chore: linkedChore, assignedChore: a, phase: 'single' })
                             }
-                            className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                            className="h-10 sm:h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 w-full sm:w-auto"
                           >
                             <Camera className="w-3.5 h-3.5" />
                             Chụp xong
@@ -652,7 +666,7 @@ export function ChoreBoard({
                         setDetailTarget({ kind: 'assigned', assignment: a, chore: linkedChore });
                       }}
                       aria-label={`Tùy chọn ${a.chore_title}`}
-                      className="w-8 h-8 rounded-lg hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] flex items-center justify-center text-[#6B7280] dark:text-[#94A3B8]"
+                      className="hidden sm:flex w-8 h-8 rounded-lg hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] items-center justify-center text-[#6B7280] dark:text-[#94A3B8] shrink-0"
                     >
                       <MoreHorizontal className="w-4 h-4" />
                     </button>
@@ -739,75 +753,105 @@ export function ChoreBoard({
               return (
                 <div
                   key={chore.id}
-                  className="px-3.5 sm:px-4 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 hover:bg-[#F8F9FA]/70 dark:hover:bg-[#0F172A]/40 transition"
+                  className="px-3.5 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 hover:bg-[#F8F9FA]/70 dark:hover:bg-[#0F172A]/40 transition"
                 >
-                  {/* 1. Icon + Name + Points/Reward chip + 2. Compact Status */}
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                        doneThisPeriod
-                          ? 'bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399]'
-                          : session
-                            ? 'bg-[#FFFBEB] dark:bg-[#451A03] text-[#D97706]'
-                            : 'bg-[#F3F4F6] dark:bg-[#0F172A] text-[#374151] dark:text-[#CBD5E1]'
-                      }`}
-                    >
-                      <ChoreIcon icon={chore.icon} className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h3 className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] truncate">
-                          {chore.title}
-                        </h3>
-                        {featureFlags.gamification && chore.points > 0 && (
-                          <span className="px-1.5 py-0.5 rounded-md bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] text-[10px] font-bold tabular-nums">
-                            +{chore.points} điểm
-                          </span>
-                        )}
-                        {chore.bonus_amount > 0 && (
-                          <span className="px-1.5 py-0.5 rounded-md bg-[#FFFBEB] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-[10px] font-bold tabular-nums">
-                            +{formatK(chore.bonus_amount)}
-                          </span>
-                        )}
+                  {/* Top Row (Mobile full-width for Title & Status + far-right •••; Desktop Left Flex-1) */}
+                  <div className="flex items-start sm:items-center justify-between gap-2.5 sm:flex-1 sm:min-w-0">
+                    <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+                      <div
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 ${
+                          doneThisPeriod
+                            ? 'bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399]'
+                            : session
+                              ? 'bg-[#FFFBEB] dark:bg-[#451A03] text-[#D97706]'
+                              : 'bg-[#F3F4F6] dark:bg-[#0F172A] text-[#374151] dark:text-[#CBD5E1]'
+                        }`}
+                      >
+                        <ChoreIcon icon={chore.icon} className="w-4 h-4" />
                       </div>
-
-                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums min-w-0">
-                        {session ? (
-                          <span className="inline-flex items-center gap-1 text-[#B45309] dark:text-[#FCD34D] font-medium truncate">
-                            <Lock className="w-3 h-3 shrink-0" />
-                            <MemberAvatar
-                              name={session.member_name || ''}
-                              avatarUrl={session.member_avatar_url}
-                              size="xs"
-                            />
-                            <span className="truncate">{session.member_name} đang làm</span>
-                          </span>
-                        ) : latest ? (
-                          <span className="inline-flex items-center gap-1.5 truncate">
-                            <MemberAvatar
-                              name={latest.member_name}
-                              avatarUrl={latest.member_avatar_url}
-                              size="xs"
-                            />
-                            <span className="truncate">
-                              {latest.member_name} • {compactTimeOnly(latest.server_timestamp)}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h3 className="text-sm font-semibold text-[#111827] dark:text-[#F8FAFC] leading-snug">
+                            {chore.title}
+                          </h3>
+                          {featureFlags.gamification && chore.points > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-[#ECFDF5] dark:bg-[#064E3B] text-[#059669] dark:text-[#34D399] text-[10px] font-bold tabular-nums whitespace-nowrap shrink-0">
+                              +{chore.points} điểm
                             </span>
-                          </span>
-                        ) : (
-                          <span>Chưa làm</span>
-                        )}
+                          )}
+                          {chore.bonus_amount > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-[#FFFBEB] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-[10px] font-bold tabular-nums whitespace-nowrap shrink-0">
+                              +{formatK(chore.bonus_amount)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[#6B7280] dark:text-[#94A3B8] tabular-nums min-w-0">
+                          {session ? (
+                            <span className="inline-flex items-center gap-1 text-[#B45309] dark:text-[#FCD34D] font-medium truncate">
+                              <Lock className="w-3 h-3 shrink-0" />
+                              <MemberAvatar
+                                name={session.member_name || ''}
+                                avatarUrl={session.member_avatar_url}
+                                size="xs"
+                              />
+                              <span className="truncate">{session.member_name} đang làm</span>
+                            </span>
+                          ) : latest ? (
+                            <span className="inline-flex items-center gap-1.5 truncate">
+                              <MemberAvatar
+                                name={latest.member_name}
+                                avatarUrl={latest.member_avatar_url}
+                                size="xs"
+                              />
+                              <span className="truncate">
+                                {latest.member_name} • {compactTimeOnly(latest.server_timestamp)}
+                              </span>
+                            </span>
+                          ) : (
+                            <span>Chưa làm</span>
+                          )}
+                        </div>
                       </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0 sm:hidden">
+                      {latest && (
+                        <button
+                          type="button"
+                          onClick={() => onInspectPhoto(latest)}
+                          aria-label={`Xem ảnh ${chore.title}`}
+                          className="relative w-8 h-8 rounded-lg overflow-hidden border border-[#E5E7EB] dark:border-[#334155] shrink-0 active:scale-95 transition"
+                        >
+                          <ProtectedImage
+                            src={latest.thumb_url || latest.proof_url}
+                            alt={chore.title}
+                            className="w-full h-full"
+                          />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          haptic(10);
+                          setDetailTarget({ kind: 'chore', chore, latest });
+                        }}
+                        aria-label={`Chi tiết ${chore.title}`}
+                        className="w-8 h-8 rounded-lg hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] flex items-center justify-center text-[#6B7280] dark:text-[#94A3B8]"
+                      >
+                        <MoreHorizontal className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
 
-                  {/* 3. Primary Action + Release + More Details */}
-                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                  {/* Bottom Row on Mobile / Right Side on Desktop */}
+                  <div className="flex items-center gap-1.5 w-full sm:w-auto sm:shrink-0">
                     {latest && (
                       <button
                         type="button"
                         onClick={() => onInspectPhoto(latest)}
                         aria-label={`Xem ảnh ${chore.title}`}
-                        className="relative w-8 h-8 rounded-lg overflow-hidden border border-[#E5E7EB] dark:border-[#334155] shrink-0 active:scale-95 transition"
+                        className="hidden sm:block relative w-8 h-8 rounded-lg overflow-hidden border border-[#E5E7EB] dark:border-[#334155] shrink-0 active:scale-95 transition"
                       >
                         <ProtectedImage
                           src={latest.thumb_url || latest.proof_url}
@@ -818,8 +862,8 @@ export function ChoreBoard({
                     )}
 
                     {lockedByOther && session ? (
-                      <div className="flex items-center gap-1">
-                        <span className="h-9 px-3 rounded-xl bg-[#F3F4F6] dark:bg-[#0F172A] text-[#6B7280] dark:text-[#94A3B8] text-xs font-semibold inline-flex items-center gap-1">
+                      <div className={`w-full sm:w-auto ${canReleaseLock ? 'grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-1' : 'flex'}`}>
+                        <span className="h-10 sm:h-9 px-3 rounded-xl bg-[#F3F4F6] dark:bg-[#0F172A] text-[#6B7280] dark:text-[#94A3B8] text-xs font-semibold inline-flex items-center justify-center gap-1 w-full sm:w-auto">
                           <Lock className="w-3 h-3" />
                           Đang làm
                         </span>
@@ -828,14 +872,14 @@ export function ChoreBoard({
                             type="button"
                             disabled={busyLockId === session.id}
                             onClick={() => cancelSession(session.id)}
-                            className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                            className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626] w-full sm:w-auto"
                           >
                             Hủy
                           </button>
                         )}
                       </div>
                     ) : onCooldown ? (
-                      <span className="h-9 px-3 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-semibold inline-flex items-center gap-1 tabular-nums">
+                      <span className="w-full sm:w-auto h-10 sm:h-9 px-3 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-semibold inline-flex items-center justify-center gap-1 tabular-nums">
                         <Clock className="w-3.5 h-3.5" />
                         {formatCountdown(remainMs)}
                       </span>
@@ -844,14 +888,14 @@ export function ChoreBoard({
                         <button
                           type="button"
                           onClick={() => onStartCapture({ chore, assignedChore: null, phase: 'before' })}
-                          className="h-9 px-3.5 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-semibold text-xs inline-flex items-center gap-1.5 active:scale-[0.98] transition"
+                          className="w-full sm:w-auto h-10 sm:h-9 px-3.5 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 active:scale-[0.98] transition"
                         >
                           <Play className="w-3.5 h-3.5" />
                           Bắt đầu
                         </button>
                       ) : unlockRemainMs > 0 ? (
-                        <div className="flex items-center gap-1">
-                          <span className="h-9 px-3 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold inline-flex items-center gap-1 tabular-nums">
+                        <div className={`w-full sm:w-auto ${canReleaseLock ? 'grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-1' : 'flex'}`}>
+                          <span className="h-10 sm:h-9 px-3 rounded-xl bg-[#FEF3C7] dark:bg-[#451A03] text-[#B45309] dark:text-[#FCD34D] text-xs font-bold inline-flex items-center justify-center gap-1 tabular-nums w-full sm:w-auto">
                             <Timer className="w-3.5 h-3.5" />
                             {formatCountdown(unlockRemainMs)}
                           </span>
@@ -860,14 +904,14 @@ export function ChoreBoard({
                               type="button"
                               disabled={busyLockId === session.id}
                               onClick={() => cancelSession(session.id)}
-                              className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                              className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626] w-full sm:w-auto"
                             >
                               Hủy
                             </button>
                           )}
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1">
+                        <div className={`w-full sm:w-auto ${canReleaseLock ? 'grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-1' : 'flex'}`}>
                           <button
                             type="button"
                             onClick={() =>
@@ -878,7 +922,7 @@ export function ChoreBoard({
                                 sessionId: session.id,
                               })
                             }
-                            className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-xs inline-flex items-center gap-1.5 active:scale-[0.98] transition"
+                            className="h-10 sm:h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 active:scale-[0.98] transition w-full sm:w-auto"
                           >
                             <Camera className="w-3.5 h-3.5" />
                             Chụp xong
@@ -888,7 +932,7 @@ export function ChoreBoard({
                               type="button"
                               disabled={busyLockId === session.id}
                               onClick={() => cancelSession(session.id)}
-                              className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                              className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626] w-full sm:w-auto"
                             >
                               Hủy
                             </button>
@@ -896,7 +940,7 @@ export function ChoreBoard({
                         </div>
                       )
                     ) : lockedByMe && session ? (
-                      <div className="flex items-center gap-1">
+                      <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:items-center sm:gap-1 sm:w-auto">
                         <button
                           type="button"
                           onClick={() =>
@@ -907,7 +951,7 @@ export function ChoreBoard({
                               sessionId: session.id,
                             })
                           }
-                          className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-xs inline-flex items-center gap-1.5 active:scale-[0.98] transition"
+                          className="h-10 sm:h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 active:scale-[0.98] transition w-full sm:w-auto"
                         >
                           <Camera className="w-3.5 h-3.5" />
                           Chụp xong
@@ -916,18 +960,18 @@ export function ChoreBoard({
                           type="button"
                           disabled={busyLockId === session.id}
                           onClick={() => cancelSession(session.id)}
-                          className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626]"
+                          className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-xs font-semibold text-[#DC2626] w-full sm:w-auto"
                         >
                           Hủy
                         </button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1">
+                      <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:items-center sm:gap-1 sm:w-auto">
                         <button
                           type="button"
                           disabled={busyLockId === chore.id}
                           onClick={() => void startLockOnly(chore, null)}
-                          className="h-9 px-2.5 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-[#374151] dark:text-[#CBD5E1] font-semibold text-xs inline-flex items-center gap-1"
+                          className="h-10 sm:h-9 px-3 rounded-xl border border-[#E5E7EB] dark:border-[#334155] text-[#374151] dark:text-[#CBD5E1] font-semibold text-xs inline-flex items-center justify-center gap-1 w-full sm:w-auto"
                         >
                           <Play className="w-3 h-3" />
                           Bắt đầu
@@ -935,7 +979,7 @@ export function ChoreBoard({
                         <button
                           type="button"
                           onClick={() => onStartCapture({ chore, assignedChore: null, phase: 'single' })}
-                          className="h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-xs inline-flex items-center gap-1.5 active:scale-[0.98] transition"
+                          className="h-10 sm:h-9 px-3.5 rounded-xl bg-[#059669] hover:bg-[#047857] text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 active:scale-[0.98] transition w-full sm:w-auto"
                         >
                           <Camera className="w-3.5 h-3.5" />
                           Chụp xong
@@ -950,7 +994,7 @@ export function ChoreBoard({
                         setDetailTarget({ kind: 'chore', chore, latest });
                       }}
                       aria-label={`Chi tiết ${chore.title}`}
-                      className="w-8 h-8 rounded-lg hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] flex items-center justify-center text-[#6B7280] dark:text-[#94A3B8]"
+                      className="hidden sm:flex w-8 h-8 rounded-lg hover:bg-[#F3F4F6] dark:hover:bg-[#0F172A] items-center justify-center text-[#6B7280] dark:text-[#94A3B8] shrink-0"
                     >
                       <MoreHorizontal className="w-4 h-4" />
                     </button>
