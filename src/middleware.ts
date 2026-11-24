@@ -65,6 +65,9 @@ export function middleware(req: NextRequest) {
   const accept = (req.headers.get('accept') || '').toLowerCase();
   const acceptLang = (req.headers.get('accept-language') || '').trim();
   const secChUa = (req.headers.get('sec-ch-ua') || '').toLowerCase();
+  // iOS Home Screen WebClip (standalone PWA) sends AppleWebKit + Mobile/ without "Safari" and may omit Accept-Language
+  const isIosWebKit =
+    /(iPhone|iPad|iPod)/i.test(ua) && /AppleWebKit/i.test(ua) && /Mobile\//i.test(ua);
 
   // 1. Anti-Scraping & Headless Browser Blocking
   if (!ua || BLOCKED_UA_REGEX.test(ua) || secChUa.includes('headlesschrome')) {
@@ -74,8 +77,8 @@ export function middleware(req: NextRequest) {
     );
   }
 
-  // Document navigation requests must carry genuine browser Accept-Language
-  if (method === 'GET' && accept.includes('text/html') && !acceptLang) {
+  // Document navigation requests must carry genuine browser Accept-Language (allow iOS Safari/WebClip)
+  if (method === 'GET' && accept.includes('text/html') && !acceptLang && !isIosWebKit) {
     return NextResponse.json(
       { error: 'Forbidden: Invalid browser fingerprint.' },
       { status: 403 },

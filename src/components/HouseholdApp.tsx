@@ -100,23 +100,21 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
   );
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
-    const hadController = Boolean(navigator.serviceWorker.controller);
-    let reloaded = false;
-    const onControllerChange = () => {
-      if (hadController && !reloaded) {
-        reloaded = true;
-        window.location.reload();
-      }
-    };
-    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
-    navigator.serviceWorker
-      .register('/sw.js', { updateViaCache: 'none' })
-      .then((reg) => reg.update().catch(() => undefined))
-      .catch(() => undefined);
-    return () => {
-      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
-    };
+    if (typeof window === 'undefined') return;
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) => Promise.all(registrations.map((reg) => reg.unregister())))
+        .catch(() => undefined);
+    }
+
+    if ('caches' in window) {
+      window.caches
+        .keys()
+        .then((keys) => Promise.all(keys.map((key) => window.caches.delete(key))))
+        .catch(() => undefined);
+    }
   }, []);
 
   useEffect(() => {
@@ -276,7 +274,9 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
               : `Hạn chót ${a.due_time}.`;
 
           try {
-            const reg = await navigator.serviceWorker?.ready;
+            const reg = navigator.serviceWorker?.getRegistration
+              ? await navigator.serviceWorker.getRegistration()
+              : undefined;
             if (reg?.showNotification) {
               await reg.showNotification(title, {
                 body,
@@ -285,7 +285,7 @@ export function HouseholdApp({ initialAuthed }: { initialAuthed: boolean }) {
                 tag: key,
               });
             } else {
-              new Notification(title, { body, icon: '/icon-192.png' });
+              new Notification(title, { body, icon: '/icon-192.png', tag: key });
             }
           } catch {
             // ignore OS notification error

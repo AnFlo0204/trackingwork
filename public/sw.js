@@ -1,71 +1,42 @@
-const CACHE_NAME = 'trackingwork-shell-v5';
-const SHELL_ASSETS = ['/manifest.json', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png'];
+// Self-destructing kill-switch Service Worker:
+// Eliminates Safari iOS "FetchEvent.respondWith received an error: Returned response is null"
+// by removing all fetch listeners, clearing legacy caches, unregistering itself, and refreshing open windows.
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(SHELL_ASSETS))
-      .catch(() => undefined),
-  );
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))),
-      )
-      .then(() => self.clients.claim()),
-  );
-});
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  if (request.method !== 'GET') return;
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return;
-
-  // Never cache dynamic API endpoints or service worker script
-  if (url.pathname.startsWith('/api/') || url.pathname === '/sw.js') return;
-
-  // Always fetch HTML navigations fresh so deployments take effect immediately
-  if (request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')) {
-    event.respondWith(
-      fetch(request, { cache: 'no-store' }).catch(() => caches.match(request)),
-    );
-    return;
-  }
-
-  event.respondWith(
-    fetch(request)
-      .then((res) => {
-        if (
-          res.ok &&
-          (url.pathname.startsWith('/_next/static/') || SHELL_ASSETS.includes(url.pathname))
-        ) {
-          const clone = res.clone();
-          caches
-            .open(CACHE_NAME)
-            .then((cache) => cache.put(request, clone))
-            .catch(() => undefined);
+    (async () => {
+      try {
+        if ('caches' in self) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
         }
-        return res;
-      })
-      .catch(() => caches.match(request)),
-  );
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      for (const client of clients) {
-        if ('focus' in client) return client.focus();
+      } catch {
+        // ignore cache cleanup errors
       }
-      if (self.clients.openWindow) return self.clients.openWindow('/');
-    }),
+
+      try {
+        await self.registration.unregister();
+      } catch {
+        // ignore unregister errors
+      }
+
+      try {
+        const windowClients = await self.clients.matchAll({
+          type: 'window',
+          includeUncontrolled: true,
+        });
+        for (const client of windowClients) {
+          if ('navigate' in client && client.url) {
+            await client.navigate(client.url).catch(() => undefined);
+          }
+        }
+      } catch {
+        // ignore client reload errors
+      }
+    })(),
   );
 });
